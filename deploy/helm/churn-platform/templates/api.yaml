@@ -45,7 +45,8 @@ spec:
               {{- if eq $model.source "hostPath" }}
               value: /models/complaints-classifier
               {{- else }}
-              value: {{ required "api.complaintsModel.hub (Hub repo id)" $model.hub | quote }}
+              # empty = classifier off (/classify answers 503; everything else works)
+              value: {{ $model.hub | quote }}
               {{- end }}
             {{- range $k := list "API_KEY" "DATABASE_URL" "ANTHROPIC_API_KEY" }}
             - name: {{ $k }}
