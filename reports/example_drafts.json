@@ -1,0 +1,46 @@
+{
+  "model": "claude-opus-5-5",
+  "generated": "2026-09-30",
+  "note": "Real drafts from POST /complaints/draft (k=3). Live drafting is disabled in the public demo because it is billed per call.",
+  "drafts": [
+    {
+      "complaint": "A debt collector keeps calling me several times a day about a medical bill that my insurance already paid. They are now threatening to report it to the credit bureaus if I do not pay.",
+      "escalate": false,
+      "escalation_reason": "The complaint does not allege fraud, identity theft, discrimination, legal action, or regulator involvement. The similar past cases were closed with an explanation, which suggests this kind of issue is usually resolved at first contact.",
+      "cited_complaint_ids": [
+        6590841,
+        7937353,
+        6025165
+      ],
+      "reply": "Thank you for contacting us. We understand how stressful it is to get several calls a day about a medical bill you believe your insurance already paid, and now a warning that it may be reported to the credit bureaus. Our team will review the collection account, check whether the provider's records show the bill as paid, and look into how often and how you are being contacted. To help us do this, please send: the Explanation of Benefits (EOB) from your insurer showing payment; any statement from the provider showing a zero balance; the collection letters or account/reference number; a log of the calls you've received, with dates and times if you have them; and your preferred way and times for us to contact you. We will follow up once we have reviewed these documents.",
+      "input_tokens": 1244,
+      "output_tokens": 524
+    },
+    {
+      "complaint": "I noticed three hard inquiries on my credit report from lenders I never applied with. I think someone opened accounts in my name using my social security number.",
+      "escalate": true,
+      "escalation_reason": "Consumer alleges identity theft: unauthorized hard inquiries and possible accounts opened using their Social Security number.",
+      "cited_complaint_ids": [
+        7792900,
+        6836198,
+        6272518
+      ],
+      "reply": "Thank you for contacting us about the three hard inquiries on your credit report from lenders you say you never applied with, and your concern that someone may have used your Social Security number to open accounts in your name. We take possible identity theft seriously, and your complaint is being passed to a specialist team for review. To help us investigate, please provide: the names of the three lenders and the dates of the inquiries as they appear on your report; a copy of the relevant section of your credit report; details of any accounts you do not recognize; and a copy of a police report or FTC Identity Theft Report, if you have filed one. Please also confirm your current mailing address so we can verify your identity. Once we receive this information, the team will review each inquiry and account and contact you with the results and any next steps.",
+      "input_tokens": 949,
+      "output_tokens": 324
+    },
+    {
+      "complaint": "My bank charged me four overdraft fees in one day even though my paycheck direct deposit had already posted to my checking account that morning.",
+      "escalate": false,
+      "escalation_reason": "No allegations of fraud, identity theft, discrimination, legal action, or regulator involvement. Similar overdraft-fee complaints tied to same-day direct deposits were closed with explanation, which suggests this can typically be handled at first contact.",
+      "cited_complaint_ids": [
+        6752133,
+        6464091,
+        6064273
+      ],
+      "reply": "Thank you for contacting us, and I'm sorry for the frustration of seeing four overdraft fees charged on the same day your paycheck direct deposit posted. We understand why this is concerning, and our team will review how the transactions and your deposit were processed that day. This includes the posting order and timing, and whether each fee was assessed in line with your account agreement and overdraft settings. To help us complete this review, please provide:\n\n- The date the fees were charged\n- The amount of each overdraft fee and the transactions they relate to\n- The amount and posting time of your direct deposit, if available (a statement or screenshot works)\n- Any overdraft or card-decline preferences you've previously set on the account\n\nOnce we receive this information, we will look into the charges and follow up with an explanation of our findings and any next steps.",
+      "input_tokens": 1153,
+      "output_tokens": 509
+    }
+  ]
+}

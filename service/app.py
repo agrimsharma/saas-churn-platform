@@ -21,6 +21,9 @@ from service import churn_model, complaints, drift, rag
 ROOT = Path(__file__).resolve().parents[1]
 DRIFT_SUMMARY_PATH = ROOT / "reports" / "drift_summary.json"
 ACTIONS_LOG_PATH = ROOT / "reports" / "actions.jsonl"
+DEMO_ACTIONS_PATH = ROOT / "reports" / "demo_actions.jsonl"  # snapshot of a real n8n run
+# free public deployment (Hugging Face Space): nothing that costs money or changes shared state
+PUBLIC_DEMO = os.environ.get("PUBLIC_DEMO", "").lower() in ("1", "true", "yes")
 API_KEY = os.environ.get("API_KEY")  # unset = no auth (local dev)
 # a retrained model is only promoted if its CV ROC-AUC is at most this much worse
 PROMOTION_TOLERANCE = float(os.environ.get("PROMOTION_TOLERANCE", "0.01"))
@@ -46,6 +49,12 @@ app = FastAPI(title="SaaS Churn Platform API", version="0.2.0", lifespan=lifespa
 def require_key(x_api_key: Optional[str] = Header(default=None)):
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="invalid or missing X-API-Key")
+
+
+def not_in_public_demo():
+    if PUBLIC_DEMO:
+        raise HTTPException(status_code=403, detail="disabled in the public demo (billed per call or "
+                                                    "changes shared state) - see the full deployment")
 
 
 class Customer(BaseModel):
@@ -110,7 +119,8 @@ def health():
         },
         # don't force the (slow) DistilBERT load just for a health check
         "complaints_classifier_loaded": complaints._model is not None,
-        "reply_drafting_configured": rag.drafting_configured(),
+        "reply_drafting_configured": rag.drafting_configured() and not PUBLIC_DEMO,
+        "public_demo": PUBLIC_DEMO,
     }
 
 
@@ -167,7 +177,7 @@ async def similar_complaints(req: SimilarRequest):
     return {"similar": await run_in_threadpool(_similar, req)}
 
 
-@app.post("/complaints/draft", dependencies=[Depends(require_key)])
+@app.post("/complaints/draft", dependencies=[Depends(require_key), Depends(not_in_public_demo)])
 async def draft_complaint_reply(req: SimilarRequest):
     """Retrieve similar past complaints, then have Claude draft a reply grounded in them."""
     similar = await run_in_threadpool(_similar, req)
@@ -191,7 +201,7 @@ def drift_report():
     return summary
 
 
-@app.post("/retrain", dependencies=[Depends(require_key)])
+@app.post("/retrain", dependencies=[Depends(require_key), Depends(not_in_public_demo)])
 async def retrain():
     """Retrain on the current data file; promote only if CV ROC-AUC holds up."""
     # NOTE: retrains on CHURN_DATA_PATH. In production that file would be refreshed with
@@ -238,7 +248,7 @@ def demo_customers(
     return out
 
 
-@app.post("/actions", dependencies=[Depends(require_key)])
+@app.post("/actions", dependencies=[Depends(require_key), Depends(not_in_public_demo)])
 def log_action(action: Action):
     """Local action log - where a real deployment would write to the CRM."""
     entry = {"logged_at": datetime.now(timezone.utc).isoformat(), **action.model_dump()}
@@ -250,7 +260,8 @@ def log_action(action: Action):
 
 @app.get("/actions", dependencies=[Depends(require_key)])
 def list_actions(limit: int = Query(50, ge=1, le=1000)):
-    if not ACTIONS_LOG_PATH.exists():
+    path = ACTIONS_LOG_PATH if ACTIONS_LOG_PATH.exists() else DEMO_ACTIONS_PATH
+    if not path.exists():
         return {"actions": []}
-    lines = ACTIONS_LOG_PATH.read_text().splitlines()[-limit:]
+    lines = path.read_text().splitlines()[-limit:]
     return {"actions": [json.loads(line) for line in reversed(lines)]}
