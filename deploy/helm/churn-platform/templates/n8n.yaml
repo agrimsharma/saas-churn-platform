@@ -1,0 +1,97 @@
+{{- $sel := dict "component" "churn-n8n" "root" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "churn.name" . }}-workflows
+  labels:
+    {{- include "churn.labels" . | nindent 4 }}
+data:
+  {{- range $path, $_ := .Files.Glob "files/workflows/*.json" }}
+  {{ base $path }}: |-
+{{ $.Files.Get $path | indent 4 }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "churn.name" . }}-n8n
+  labels:
+    {{- include "churn.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: {storage: {{ .Values.n8n.storage }}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "churn.name" . }}-n8n
+  labels:
+    {{- include "churn.labels" . | nindent 4 }}
+    {{- include "churn.selector" $sel | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}   # sqlite on a RWO volume: never two pods at once
+  selector:
+    matchLabels:
+      {{- include "churn.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "churn.selector" $sel | nindent 8 }}
+      annotations:
+        checksum/workflows: {{ .Files.Glob "files/workflows/*.json" | toString | sha256sum }}
+        checksum/secrets: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        fsGroup: 1000   # the n8n image runs as node (uid 1000)
+      initContainers:
+        # (re)import the workflows from the chart and publish the webhook one, every rollout
+        - name: import-workflows
+          image: "{{ .Values.n8n.image.repository }}:{{ .Values.n8n.image.tag }}"
+          command: ["sh", "-c", "n8n import:workflow --separate --input=/workflows && n8n publish:workflow --id=ChurnComplaint02"]
+          env:
+            - {name: N8N_RUNNERS_BROKER_PORT, value: "5690"}
+          volumeMounts:
+            - {name: data, mountPath: /home/node/.n8n}
+            - {name: workflows, mountPath: /workflows, readOnly: true}
+      containers:
+        - name: n8n
+          image: "{{ .Values.n8n.image.repository }}:{{ .Values.n8n.image.tag }}"
+          imagePullPolicy: {{ .Values.n8n.image.pullPolicy }}
+          ports:
+            - {name: http, containerPort: 5678}
+          env:
+            - {name: N8N_BLOCK_ENV_ACCESS_IN_NODE, value: "false"}   # workflows read $env
+            - {name: CHURN_API_URL, value: "http://{{ include "churn.name" . }}-api:8000"}
+            - {name: WEBHOOK_URL, value: "{{ include "churn.scheme" . }}://{{ include "churn.host" (dict "root" . "key" "n8n") }}/"}
+            - {name: N8N_SECURE_COOKIE, value: {{ .Values.ingress.tls.enabled | quote }}}
+            - {name: GENERIC_TIMEZONE, value: UTC}
+            - name: CHURN_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ include "churn.name" . }}-secrets, key: API_KEY}}
+            - name: SLACK_WEBHOOK_URL
+              valueFrom: {secretKeyRef: {name: {{ include "churn.name" . }}-secrets, key: SLACK_WEBHOOK_URL}}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.n8n.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /home/node/.n8n}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: {{ include "churn.name" . }}-n8n}
+        - name: workflows
+          configMap: {name: {{ include "churn.name" . }}-workflows}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "churn.name" . }}-n8n
+  labels:
+    {{- include "churn.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "churn.selector" $sel | nindent 4 }}
+  ports:
+    - {name: http, port: 80, targetPort: http}

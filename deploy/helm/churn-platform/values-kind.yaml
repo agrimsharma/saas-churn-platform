@@ -1,0 +1,4 @@
+api:
+  complaintsModel: {source: hostPath}
+monitoring:
+  serviceMonitor: true

@@ -1,0 +1,55 @@
+# Churn platform on Kubernetes (kind or AKS). Secrets come from --set at install time (up.sh
+# reads them from .env) and are stored as a Kubernetes Secret - never in this file.
+
+secrets:
+  apiKey: ""            # internal API key shared by dashboard + n8n
+  postgresPassword: ""
+  anthropicApiKey: ""   # optional: enables live Claude drafts (billed per call)
+  slackWebhookUrl: ""   # optional: n8n digests/alerts
+
+api:
+  image: {repository: churn-api, tag: latest, pullPolicy: IfNotPresent}
+  # the DistilBERT complaints classifier: a Hugging Face Hub repo id, or a node path (kind)
+  complaintsModel:
+    source: hub           # hub | hostPath
+    hub: ""               # e.g. agrimsharma/cfpb-complaints-distilbert
+    hostPath: /mnt/churn-models/complaints-classifier
+  telcoDataUrl: https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv
+  resources:
+    requests: {cpu: 500m, memory: 2Gi}
+    limits: {memory: 4Gi}
+
+dashboard:
+  image: {repository: churn-dashboard, tag: latest, pullPolicy: IfNotPresent}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+
+n8n:
+  image: {repository: docker.n8n.io/n8nio/n8n, tag: "2.41.4", pullPolicy: IfNotPresent}
+  storage: 1Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+
+postgres:
+  image: {repository: pgvector/pgvector, tag: pg17}
+  storage: 2Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+
+ingress:
+  enabled: true
+  className: nginx
+  # hosts: <prefix>.<domain>, e.g. churn.localtest.me / n8n.localtest.me / churn-api.localtest.me
+  domain: localtest.me
+  hosts: {dashboard: churn, n8n: n8n, api: churn-api}
+  tls:
+    enabled: false
+    clusterIssuer: letsencrypt
+
+monitoring:
+  serviceMonitor: false
+  labels:
+    release: kube-prometheus-stack

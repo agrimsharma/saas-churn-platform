@@ -1,0 +1,351 @@
+{
+  "id": "ChurnRetention01",
+  "name": "Churn - daily retention scoring",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "5a5b36cb-0741-5bc9-bff3-3cbf27a1b9c2",
+      "name": "Every weekday 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "18e7d1dc-708e-5cbb-9170-140dafead958",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHURN_API_URL }}/demo/customers?n=50",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CHURN_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d24d8eae-d78b-5723-9ac2-c9dce60ff2e5",
+      "name": "Pull active customers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHURN_API_URL }}/score",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CHURN_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ customers: $json.customers }) }}",
+        "options": {}
+      },
+      "id": "7a4eeae5-73d6-5970-8a56-4f4c04959527",
+      "name": "Score churn risk",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retention playbook: the business rules live here (editable without redeploying the model).\n// churn_probability is calibrated (isotonic, out-of-fold): 0.6 means ~60% of such customers churn.\n// On the Telco base (26.5% churn) HIGH flags ~13% of customers, MEDIUM another ~25%.\nconst HIGH = 0.6;\nconst MEDIUM = 0.35;\n\nconst customers = Object.fromEntries(\n  $('Pull active customers').first().json.customers.map(c => [c.customerID, c])\n);\n\nfunction pickOffer(c) {\n  if (c.Contract === 'Month-to-month') return '15% off for switching to a 1-year contract';\n  if (c.TechSupport === 'No' && c.InternetService !== 'No') return '3 months of free tech support';\n  if (c.PaymentMethod === 'Electronic check') return '$5/month credit for enabling autopay';\n  return 'loyalty check-in, no discount';\n}\n\nconst out = [];\nfor (const item of $input.all()) {\n  for (const p of item.json.predictions) {\n    const c = customers[p.customer_id] || {};\n    const tier = p.churn_probability >= HIGH ? 'high' : p.churn_probability >= MEDIUM ? 'medium' : 'low';\n    out.push({ json: {\n      customer_id: p.customer_id,\n      churn_probability: p.churn_probability,\n      tier,\n      action: { high: 'retention_call', medium: 'retention_email', low: 'none' }[tier],\n      offer: tier === 'low' ? null : pickOffer(c),\n      monthly_charges: c.MonthlyCharges,\n      tenure_months: c.tenure,\n      drivers: p.top_risk_factors.map(f => `${f.feature} = ${f.value}`),\n    }});\n  }\n}\nreturn out;"
+      },
+      "id": "89739313-09d4-567e-b79f-2bc74ab0f642",
+      "name": "Apply retention playbook",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b7586940-d409-5fb2-991a-404af7cc4904",
+                    "leftValue": "={{ $json.tier }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "high"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "high"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "effb48c6-b525-528a-9c3f-0ecefa8f8c2c",
+                    "leftValue": "={{ $json.tier }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "medium"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "medium"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6509f726-d103-5ad4-9fb5-9410008fb7ae",
+      "name": "Route by risk tier",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHURN_API_URL }}/actions",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CHURN_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ customer_id: $json.customer_id, action: $json.action, details: { churn_probability: $json.churn_probability, offer: $json.offer, drivers: $json.drivers } }) }}",
+        "options": {}
+      },
+      "id": "db2bc16a-6d54-5ecb-bc26-3ee02a2ba6d2",
+      "name": "Create call task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHURN_API_URL }}/actions",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CHURN_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ customer_id: $json.customer_id, action: $json.action, details: { churn_probability: $json.churn_probability, offer: $json.offer, drivers: $json.drivers } }) }}",
+        "options": {}
+      },
+      "id": "da1eca1c-4ef7-5b49-afc7-f14f3a8ddaa1",
+      "name": "Queue retention email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One Slack message per run instead of one per customer. Skipped if SLACK_WEBHOOK_URL is unset.\nif (!$env.SLACK_WEBHOOK_URL) return [];\n\nconst rows = $input.all().map(i => i.json);\nconst high = rows.filter(r => r.tier === 'high').sort((a, b) => b.churn_probability - a.churn_probability);\nconst medium = rows.filter(r => r.tier === 'medium');\nconst revenueAtRisk = high.concat(medium).reduce((s, r) => s + (r.monthly_charges || 0), 0);\n\nconst lines = high.slice(0, 5).map(r =>\n  `\u2022 *${r.customer_id}* - ${(r.churn_probability * 100).toFixed(0)}% - ${r.drivers.join(', ')} \u2192 _${r.offer}_`\n);\nconst text = [\n  `*Churn scan:* ${rows.length} customers scored - ${high.length} high risk (call), ${medium.length} medium (email).`,\n  `Monthly revenue at risk: $${revenueAtRisk.toFixed(2)}`,\n  ...(lines.length ? ['*Top high-risk:*', ...lines] : []),\n].join('\\n');\nreturn [{ json: { text } }];"
+      },
+      "id": "f94a684e-dea7-57ad-9e0f-2859678b7c30",
+      "name": "Build Slack digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text }) }}",
+        "options": {}
+      },
+      "id": "79d1671b-7c28-59ba-a9c9-8eb06eab2d6f",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        560
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Every weekday 08:00": {
+      "main": [
+        [
+          {
+            "node": "Pull active customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Pull active customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pull active customers": {
+      "main": [
+        [
+          {
+            "node": "Score churn risk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score churn risk": {
+      "main": [
+        [
+          {
+            "node": "Apply retention playbook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply retention playbook": {
+      "main": [
+        [
+          {
+            "node": "Route by risk tier",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Slack digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by risk tier": {
+      "main": [
+        [
+          {
+            "node": "Create call task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue retention email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Slack digest": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

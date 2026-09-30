@@ -1,0 +1,55 @@
+{{- $sel := dict "component" "churn-dashboard" "root" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "churn.name" . }}-dashboard
+  labels:
+    {{- include "churn.labels" . | nindent 4 }}
+    {{- include "churn.selector" $sel | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "churn.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "churn.selector" $sel | nindent 8 }}
+      annotations:
+        checksum/secrets: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: dashboard
+          image: "{{ .Values.dashboard.image.repository }}:{{ .Values.dashboard.image.tag }}"
+          imagePullPolicy: {{ .Values.dashboard.image.pullPolicy }}
+          ports:
+            - {name: http, containerPort: 8501}
+          env:
+            - {name: CHURN_API_URL, value: "http://{{ include "churn.name" . }}-api:8000"}
+            - {name: HOME, value: /tmp}
+            - name: CHURN_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ include "churn.name" . }}-secrets, key: API_KEY}}
+          readinessProbe:
+            httpGet: {path: /_stcore/health, port: http}
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "churn.name" . }}-dashboard
+  labels:
+    {{- include "churn.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "churn.selector" $sel | nindent 4 }}
+  ports:
+    - {name: http, port: 80, targetPort: http}

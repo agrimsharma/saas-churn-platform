@@ -1,0 +1,56 @@
+{{- $sel := dict "component" "churn-db" "root" . }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "churn.name" . }}-db
+  labels:
+    {{- include "churn.labels" . | nindent 4 }}
+    {{- include "churn.selector" $sel | nindent 4 }}
+spec:
+  serviceName: {{ include "churn.name" . }}-db
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "churn.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "churn.selector" $sel | nindent 8 }}
+    spec:
+      containers:
+        - name: postgres
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          ports:
+            - {name: postgres, containerPort: 5432}
+          env:
+            - {name: POSTGRES_USER, value: churn}
+            - {name: POSTGRES_DB, value: churn}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ include "churn.name" . }}-secrets, key: POSTGRES_PASSWORD}}
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "churn", "-d", "churn"]}
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests: {storage: {{ .Values.postgres.storage }}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "churn.name" . }}-db
+  labels:
+    {{- include "churn.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "churn.selector" $sel | nindent 4 }}
+  ports:
+    - {name: postgres, port: 5432, targetPort: postgres}

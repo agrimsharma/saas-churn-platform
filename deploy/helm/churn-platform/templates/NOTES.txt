@@ -1,0 +1,8 @@
+Churn platform deployed as release {{ .Release.Name }} in {{ .Release.Namespace }}.
+
+  Dashboard: {{ include "churn.scheme" . }}://{{ include "churn.host" (dict "root" . "key" "dashboard") }}
+  n8n:       {{ include "churn.scheme" . }}://{{ include "churn.host" (dict "root" . "key" "n8n") }}   (create the owner account on first visit)
+  API docs:  {{ include "churn.scheme" . }}://{{ include "churn.host" (dict "root" . "key" "api") }}/docs
+
+Load the 40k-complaint vector index into the cluster's Postgres (no re-embedding):
+  ./scripts/k8s_load_index.sh {{ .Release.Namespace }} {{ include "churn.name" . }}
