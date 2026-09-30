@@ -1,0 +1,16 @@
+{
+  "metrics": {
+    "eval_loss": 0.414256751537323,
+    "eval_accuracy": 0.8850783486746914,
+    "eval_macro_f1": 0.8566266843272328,
+    "eval_macro_precision": 0.8397128007870499,
+    "eval_macro_recall": 0.8762173783825652
+  },
+  "label_to_id": {
+    "credit_card": 0,
+    "credit_reporting": 1,
+    "debt_collection": 2,
+    "mortgages_and_loans": 3,
+    "retail_banking": 4
+  }
+}

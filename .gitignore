@@ -1,0 +1,24 @@
+# environments / secrets
+.venv*/
+.env
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# data + trained models: large, and regenerable (see README)
+data/
+models/*
+!models/metrics.json
+
+# experiment tracking (local SQLite + artifacts, paths are machine-specific)
+mlruns/
+mlflow.db
+*.log
+
+# runtime output
+reports/actions.jsonl
+reports/drift_report.html
+
+.DS_Store

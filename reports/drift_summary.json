@@ -1,0 +1,21 @@
+{
+  "reference_metrics": {
+    "accuracy": 0.7537260468417317,
+    "roc_auc": 0.8485998088299879
+  },
+  "current_metrics": {
+    "accuracy": 0.7381121362668559,
+    "roc_auc": 0.8276021080368906
+  },
+  "roc_auc_drop": 0.020997700793097263,
+  "roc_auc_drop_threshold": 0.03,
+  "performance_trigger": false,
+  "drifted_columns_count": 3.0,
+  "drifted_columns_share": 0.15789473684210525,
+  "dataset_level_drift_naive": false,
+  "drifted_importance_mass": 0.6002872586250305,
+  "importance_drift_threshold": 0.3,
+  "importance_drift_trigger": true,
+  "retrain_recommended": true,
+  "simulated_scenario": "MonthlyCharges +25% (price increase, TotalCharges recomputed consistently) + 70% of One/Two-year contract customers migrated to Month-to-month (large promotional-push scenario, targeting the model's top feature); labels unchanged in both cases"
+}
