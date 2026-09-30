@@ -6,14 +6,16 @@ Docs:         http://localhost:8000/docs
 import json
 import os
 import threading
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 import pandas as pd
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
+from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from pydantic import BaseModel, Field
 
 from service import churn_model, complaints, drift, rag
@@ -27,6 +29,16 @@ PUBLIC_DEMO = os.environ.get("PUBLIC_DEMO", "").lower() in ("1", "true", "yes")
 API_KEY = os.environ.get("API_KEY")  # unset = no auth (local dev)
 # a retrained model is only promoted if its CV ROC-AUC is at most this much worse
 PROMOTION_TOLERANCE = float(os.environ.get("PROMOTION_TOLERANCE", "0.01"))
+
+# Prometheus metrics (scraped at /metrics by the ServiceMonitor in the Helm chart)
+REQUEST_SECONDS = Histogram("churn_api_request_seconds", "API latency by route", ["route", "method", "status"])
+PREDICTIONS = Counter("churn_predictions_total", "Customers scored")
+CHURN_PROB = Histogram("churn_probability", "Calibrated churn probability of scored customers",
+                       buckets=[i / 10 for i in range(1, 11)])
+DRIFT_MASS = Gauge("churn_drift_importance_mass", "Share of model importance on drifted features, last check")
+RETRAIN_RECOMMENDED = Gauge("churn_retrain_recommended", "1 if the last drift check recommended a retrain")
+DRAFTS = Counter("churn_reply_drafts_total", "Claude reply drafts", ["escalate"])
+DRAFT_TOKENS = Counter("churn_reply_draft_tokens_total", "Claude tokens used for drafts", ["kind"])
 
 _state: Dict[str, Any] = {"model": None}
 _lock = threading.Lock()
@@ -44,6 +56,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="SaaS Churn Platform API", version="0.2.0", lifespan=lifespan)
+app.mount("/metrics", make_asgi_app())
+
+
+@app.middleware("http")
+async def time_requests(request: Request, call_next):
+    t0 = time.perf_counter()
+    response = await call_next(request)
+    route = request.scope.get("route")
+    if route is not None:  # skip /metrics and unknown paths (keeps label cardinality bounded)
+        REQUEST_SECONDS.labels(route.path, request.method, str(response.status_code)).observe(time.perf_counter() - t0)
+    return response
 
 
 def require_key(x_api_key: Optional[str] = Header(default=None)):
@@ -129,10 +152,11 @@ def score(req: ScoreRequest):
     records = [c.model_dump() for c in req.customers]
     with _lock:
         model = _state["model"]
-    return {
-        "model_trained_at": model["meta"].get("trained_at"),
-        "predictions": churn_model.score(model, records),
-    }
+    predictions = churn_model.score(model, records)
+    PREDICTIONS.inc(len(predictions))
+    for p in predictions:
+        CHURN_PROB.observe(p["churn_probability"])
+    return {"model_trained_at": model["meta"].get("trained_at"), "predictions": predictions}
 
 
 @app.post("/classify", dependencies=[Depends(require_key)])
@@ -155,6 +179,8 @@ def drift_check(req: DriftCheckRequest):
     result = drift.check(model["profile"], model["importances"], X, probs, req.churned,
                          model["meta"].get("cv_roc_auc_mean"))
     result["model_trained_at"] = model["meta"].get("trained_at")
+    DRIFT_MASS.set(result["drifted_importance_mass"])
+    RETRAIN_RECOMMENDED.set(int(result["retrain_recommended"]))
     return result
 
 
@@ -185,6 +211,9 @@ async def draft_complaint_reply(req: SimilarRequest):
         draft = await run_in_threadpool(rag.draft_reply, req.text, similar)
     except rag.DraftingUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))
+    DRAFTS.labels(str(draft["escalate"]).lower()).inc()
+    DRAFT_TOKENS.labels("input").inc(draft["usage"]["input_tokens"])
+    DRAFT_TOKENS.labels("output").inc(draft["usage"]["output_tokens"])
     return {**draft, "similar": [{k: c[k] for k in ("complaint_id", "product", "issue", "company_response", "similarity")}
                                  for c in similar]}
 
