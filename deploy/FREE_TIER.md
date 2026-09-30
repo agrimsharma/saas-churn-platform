@@ -1,9 +1,15 @@
-# Going live for free (Hugging Face Space + Neon, no card anywhere)
+# Going live for free (Modal + Neon, no card anywhere)
 
-**Cost: ₹0, permanently.** The public demo never calls Claude (drafting shows real examples instead),
-and neither service has a card on file. The Space sleeps after ~48 h idle and wakes on the next visit.
+**Cost: ₹0.** Modal's Starter plan gives $30/month of compute credit with no card on file, and the
+demo scales to zero when idle. Neon's free Postgres has no card either. The public demo never
+calls Claude (drafting shows real examples instead). The first visit after an idle period takes
+~30 s while the container starts.
 
-## 1. Database → Neon (~5 min)
+## 1. Classifier → Hugging Face Hub (done)
+
+`python3 scripts/publish_hf.py` published https://huggingface.co/agrim-sharma/cfpb-complaints-distilbert
+
+## 2. Database → Neon (~5 min)
 
 1. neon.tech → sign up (Google/GitHub) → create a project (region: Europe).
 2. Copy the connection string (Dashboard → Connect; keep `?sslmode=require`).
@@ -12,14 +18,11 @@ and neither service has a card on file. The Space sleeps after ~48 h idle and wa
    TARGET_DATABASE_URL='postgresql://...neon.tech/neondb?sslmode=require' ./scripts/copy_index_to_postgres.sh
    ```
 
-## 2. App → Hugging Face Space (~15 min)
+## 3. App → Modal (~15 min, the first image build is the slow part)
 
-1. Log in once (a **Write** token from huggingface.co → Settings → Access Tokens):
-   ```bash
-   python3 -m pip install --user -U huggingface_hub && hf auth login
-   ```
-2. Publish the classifier (public model repo) and the Space; the Neon URL becomes a Space secret:
-   ```bash
-   NEON_DATABASE_URL='postgresql://...neon.tech/neondb?sslmode=require' python3 scripts/publish_hf.py
-   ```
-3. After the build (~10 min): `https://<you>-churn-platform.hf.space` → the dashboard.
+```bash
+~/Downloads/Projects/.hf-venv/bin/modal token new      # once, if not done for the doppelganger
+modal secret create churn-neon DATABASE_URL='postgresql://...neon.tech/neondb?sslmode=require'
+modal deploy deploy/modal_app.py
+```
+→ `https://<workspace>--churn-platform.modal.run`
