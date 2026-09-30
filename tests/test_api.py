@@ -122,3 +122,10 @@ def test_psi_zero_for_identical_distributions():
 
 def test_complaint_text_normalized_like_training_data():
     assert complaints.normalize("My CARD was charged $35!!  Twice.") == "my card was charged twice"
+
+
+def test_metrics_endpoint(client):
+    client.post("/score", json={"customers": [LOW_RISK, HIGH_RISK]})
+    text = client.get("/metrics/").text
+    assert "churn_predictions_total" in text and "churn_api_request_seconds_bucket" in text
+    assert 'route="/score"' in text
