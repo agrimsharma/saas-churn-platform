@@ -1,0 +1,4 @@
+# optional - enables POST /classify (DistilBERT complaints model)
+# install torch first; CPU build: pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch>=2.1
+transformers>=4.40
