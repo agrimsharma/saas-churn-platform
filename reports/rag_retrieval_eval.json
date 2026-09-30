@@ -1,0 +1,17 @@
+{
+  "indexed": 40000,
+  "held_out_queries": 1000,
+  "k": 5,
+  "since": "2021-01-01",
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "precision_at_k": {
+    "embeddings_same_product": 0.8332,
+    "embeddings_same_product_and_issue": 0.5454,
+    "tfidf_same_product": 0.8172,
+    "tfidf_same_product_and_issue": 0.5222,
+    "chance_same_product": 0.5078,
+    "chance_same_product_and_issue": 0.1514
+  },
+  "mean_search_ms": 0.81,
+  "build_seconds": 2347
+}

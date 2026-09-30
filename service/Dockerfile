@@ -15,7 +15,9 @@ RUN if [ "$WITH_NLP" = "true" ]; then \
     fi
 
 COPY service/ service/
-COPY scripts/train_scoring_model.py scripts/
+COPY scripts/ scripts/
+# Hugging Face models (embeddings) cache on the mounted models/ volume, not in the image
+ENV HF_HOME=/app/models/hf_cache
 
 # data/, models/ and reports/ are mounted as volumes (see docker-compose.yml)
 EXPOSE 8000

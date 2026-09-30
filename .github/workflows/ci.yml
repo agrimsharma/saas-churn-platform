@@ -8,6 +8,16 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: churn
+          POSTGRES_PASSWORD: churn
+          POSTGRES_DB: churn
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U churn" --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       # the public IBM Telco dataset has the same columns the model uses
       CHURN_DATA_PATH: data/raw/Telco-Customer-Churn.csv

@@ -174,7 +174,10 @@ const MIN_WORDS = 8;
 const URGENT = /\b(lawyer|attorney|lawsuit|sue|cfpb|fraud|identity theft|stolen)\b/i;
 
 const complaint = $('Complaint received').item.json.body;
-const r = $input.item.json;
+const r = $('Classify complaint').item.json;
+// both RAG steps fail soft: no index / too-short text / no Claude key -> route without them
+const similar = $('Find similar complaints').item.json.similar || [];
+const draft = $input.item.json.reply ? $input.item.json : null;
 const tooShort = complaint.text.trim().split(/\s+/).length < MIN_WORDS;
 const lowConfidence = r.confidence < MIN_CONFIDENCE;
 const needsHuman = tooShort || lowConfidence;
@@ -186,10 +189,16 @@ return { json: {
     category: r.category,
     confidence: r.confidence,
     team: needsHuman ? 'manual-triage' : TEAMS[r.category],
-    priority: URGENT.test(complaint.text) ? 'urgent' : 'normal',
+    priority: URGENT.test(complaint.text) || (draft && draft.escalate) ? 'urgent' : 'normal',
     reason: tooShort ? `too short to classify reliably (< ${MIN_WORDS} words)`
       : lowConfidence ? `low model confidence (${r.confidence})` : 'auto-routed',
     excerpt: complaint.text.slice(0, 280),
+    similar_past_complaints: similar.map(c => ({
+      id: c.complaint_id, issue: c.issue, company_response: c.company_response, similarity: c.similarity,
+    })),
+    draft_reply: draft ? draft.reply : null,
+    draft_cites: draft ? draft.cited_complaint_ids : [],
+    escalation_reason: draft && draft.escalate ? draft.escalation_reason : null,
   },
 }};
 """
@@ -199,10 +208,18 @@ nodes = [
          webhookId=nid()),
     http("Classify complaint", [480, 300], "/classify", method="POST",
          body="={{ JSON.stringify({ text: $json.body.text }) }}"),
-    code("Route to team", [720, 300], ROUTE_JS, mode="runOnceForEachItem"),
-    http("Log routed ticket", [960, 300], "/actions", method="POST", body="={{ JSON.stringify($json) }}"),
+    http("Find similar complaints", [720, 300], "/complaints/similar", method="POST",
+         body="={{ JSON.stringify({ text: $('Complaint received').item.json.body.text, k: 3 }) }}",
+         onError="continueRegularOutput"),
+    # needs ANTHROPIC_API_KEY on the API; without it this returns 503 and routing continues
+    http("Draft reply", [960, 300], "/complaints/draft", method="POST",
+         body="={{ JSON.stringify({ text: $('Complaint received').item.json.body.text, k: 3 }) }}",
+         onError="continueRegularOutput", options={"timeout": 120000}),
+    code("Route to team", [1200, 300], ROUTE_JS, mode="runOnceForEachItem"),
+    http("Log routed ticket", [1440, 300], "/actions", method="POST", body="={{ JSON.stringify($json) }}"),
 ]
-conns = connect(("Complaint received", "Classify complaint"), ("Classify complaint", "Route to team"),
+conns = connect(("Complaint received", "Classify complaint"), ("Classify complaint", "Find similar complaints"),
+                ("Find similar complaints", "Draft reply"), ("Draft reply", "Route to team"),
                 ("Route to team", "Log routed ticket"))
 wf2 = workflow("Churn - complaint routing", "ChurnComplaint02", nodes, conns, [])
 

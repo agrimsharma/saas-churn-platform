@@ -3,7 +3,6 @@ models/ is never touched. Needs the Telco CSV at CHURN_DATA_PATH (CI downloads I
 import numpy as np
 import pandas as pd
 import pytest
-from fastapi.testclient import TestClient
 
 from service import app as app_module
 from service import churn_model, complaints, drift
@@ -17,21 +16,6 @@ HIGH_RISK = dict(LOW_RISK, Partner="No", Dependents="No", tenure=1, InternetServ
                  OnlineSecurity="No", OnlineBackup="No", DeviceProtection="No", TechSupport="No",
                  Contract="Month-to-month", PaperlessBilling="Yes", PaymentMethod="Electronic check",
                  MonthlyCharges=95.0, TotalCharges=95.0)
-
-
-@pytest.fixture(scope="module")
-def client(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("model")
-    mp = pytest.MonkeyPatch()
-    mp.setattr(churn_model, "MODEL_DIR", tmp)
-    mp.setattr(churn_model, "PIPELINE_PATH", tmp / "pipeline.joblib")
-    mp.setattr(churn_model, "META_PATH", tmp / "meta.json")
-    mp.setattr(app_module, "ACTIONS_LOG_PATH", tmp / "actions.jsonl")
-    mp.setattr(app_module, "API_KEY", None)
-    app_module._state["model"] = None
-    with TestClient(app_module.app) as c:
-        yield c
-    mp.undo()
 
 
 def demo(client, **params):

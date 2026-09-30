@@ -7,18 +7,40 @@ services:
         WITH_NLP: ${WITH_NLP:-false}
     environment:
       API_KEY: ${API_KEY:-}
+      DATABASE_URL: postgresql://churn:${POSTGRES_PASSWORD:-churn}@db:5432/churn
+      # optional: enables /complaints/draft (Claude). Never commit it - .env is gitignored.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - ./data:/app/data:ro
       - ./models:/app/models      # /retrain writes the promoted model here
       - ./reports:/app/reports    # drift_summary.json in, actions.jsonl out
     ports:
       - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 30s
+
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: churn
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-churn}
+      POSTGRES_DB: churn
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5433:5432"  # host access for tests / psql, loopback only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U churn -d churn"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
@@ -46,6 +68,9 @@ services:
     environment:
       CHURN_API_URL: http://api:8000
       CHURN_API_KEY: ${API_KEY:-}
+      REPORTS_DIR: /reports
+    volumes:
+      - ./reports:/reports:ro
     ports:
       - "8501:8501"
     depends_on:
@@ -54,3 +79,4 @@ services:
 
 volumes:
   n8n_data:
+  pg_data:
