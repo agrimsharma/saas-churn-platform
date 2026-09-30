@@ -22,9 +22,11 @@ A small Streamlit dashboard shows what the workflows did.
 ## Quick start
 
 ```bash
-cp .env.example .env                 # set API_KEY; optionally SLACK_WEBHOOK_URL, WITH_NLP=true
+cp .env.example .env                 # set API_KEY; optionally SLACK_WEBHOOK_URL, WITH_NLP=true, ANTHROPIC_API_KEY
 docker compose up -d --build
 docker compose exec n8n n8n import:workflow --separate --input=/workflows
+# RAG (needs WITH_NLP=true and the CFPB shard in data/raw/cfpb/): embed 40k complaints into pgvector
+docker compose run --rm --no-deps api python scripts/build_complaint_index.py --n 40000
 ```
 
 | Service | URL |
@@ -92,9 +94,43 @@ How to read these:
 
 A plain "share of columns drifted" metric treats the harmless price shift and the damaging contract shift alike. Weighting by model importance separates them.
 
+**Is retraining worth it? A backtest on real time-stamped data** (`scripts/retail_backtest.py`, [UCI Online Retail II](https://archive.ics.uci.edu/dataset/502/online+retail+ii), 1.07M transactions, 5.9k customers, Dec 2009 – Dec 2011, CC BY 4.0):
+
+Telco is a single snapshot, so drift there can only be simulated. This replays the monitoring loop month by month on real data:
+- **Snapshots:** each month, every customer active in the last 180 days, with features built only from their past transactions. The label is "no purchase in the next 90 days".
+- **No peeking:** a model deployed in a given month only trains on snapshots whose 90-day outcome was already known then.
+
+| Policy (Nov 2010 – Sep 2011) | Mean ROC-AUC | Worst month | Top-10% precision | Retrains |
+|---|---|---|---|---|
+| Never retrain | 0.743 | 0.708 | 0.756 | 0 |
+| Retrain every month | **0.745** | 0.708 | 0.764 | 10 |
+| Drift-triggered (the platform's rule) | 0.741 | 0.708 | 0.756 | 1 |
+
+What this shows:
+- **Retraining barely matters here.** The model is stable over 11 months, and monthly retraining gains 0.002 AUC.
+- **The trigger was cautious but not perfect.** It fired once, in January 2011, on a post-Christmas dip in matured AUC (0.696) that turned out to be temporary. Requiring the AUC drop to be statistically significant (a bootstrap interval, since there are only ~4k customers a month) would have suppressed it.
+- **The first feature set produced fake drift.** Lifetime totals and uncapped tenure grew every month simply because the dataset starts in December 2009, and that would have caused 3 retrains. Every feature now uses the same fixed 180-day window.
+
 **Complaints classifier** (DistilBERT fine-tuned on 162k real CFPB complaints, 5 products, Vast.ai RTX 3060 Ti):
 - Accuracy **0.885**, macro-F1 **0.857**.
 - A TF-IDF + logistic-regression baseline scores 0.846 / 0.818.
+
+**Similar-complaint retrieval (RAG)** (`scripts/build_complaint_index.py`):
+- **Data:** 40,000 CFPB complaints with narratives from 2021 onwards, embedded with `bge-small-en-v1.5` into pgvector (HNSW index).
+- **Evaluation:** 1,000 held-out complaints, measuring the share of the top 5 retrieved that share the query's label.
+
+| Method | Same product | Same product **and** issue |
+|---|---|---|
+| Random chance | 0.508 | 0.151 |
+| TF-IDF baseline | 0.817 | 0.522 |
+| **bge-small + pgvector** | **0.833** | **0.545** |
+
+How to read this:
+- Embeddings are 3.6× better than chance on product and issue, but only ~2 points better than TF-IDF.
+- CFPB labels are chosen by the consumer, so they're a noisy proxy for "the same problem".
+- A warm query takes ~25 ms end to end, including 0.8 ms for the vector search.
+- **Drafting:** Claude (`claude-opus-5-5`) writes a reply from the top 3 cases as structured output. Any cited ID that wasn't among the retrieved cases is dropped before the draft is returned. There's no evaluation of draft quality yet.
+- **Data source:** the CFPB narratives come from the [CC0 Hugging Face mirror](https://huggingface.co/datasets/BEE-spoke-data/consumer-finance-complaints). The current official bulk export no longer includes narrative text.
 
 **Found and removed: label leakage.**
 - The first text model predicted churn from customer feedback and scored **1.0 on every metric**.
@@ -111,6 +147,8 @@ A plain "share of columns drifted" metric treats the harmless price shift and th
 | `POST /drift/check` | ≥ 100 customers (+ optional `churned` outcomes) → per-feature PSI, importance-weighted drift, retrain recommendation |
 | `POST /retrain` | Retrains; **promotes only if 5-fold CV ROC-AUC ≥ current − 0.01**, else keeps the old model |
 | `POST /classify` | `{"text": "..."}` → complaint category + confidence (needs `WITH_NLP=true`) |
+| `POST /complaints/similar` | `{"text": "...", "k": 5, "product": null}` → most similar past CFPB complaints (pgvector), with issue and company response |
+| `POST /complaints/draft` | Same input → Claude drafts a reply grounded in the retrieved cases: `reply`, `cited_complaint_ids`, `escalate`. Needs `ANTHROPIC_API_KEY`; returns 503 without it |
 | `GET /demo/customers` | CRM stand-in: random Telco rows; `scenario=price_hike\|contract_shift\|both` injects drift |
 | `POST /actions`, `GET /actions` | Action log (`reports/actions.jsonl`), standing in for CRM writes |
 | `GET /drift` | The original one-off Evidently report (`scripts/drift_monitoring.py`) |
@@ -123,9 +161,11 @@ A plain "share of columns drifted" metric treats the harmless price shift and th
    - The offer comes from the customer's contract, support and payment method.
    - One Slack digest per run, including revenue at risk.
    - Thresholds and offers live in n8n, so business rules change without redeploying the model.
-2. **Complaint routing:** webhook → DistilBERT category → owning team. Legal or fraud keywords are flagged urgent. Two cases go to manual triage:
+2. **Complaint routing:** webhook → DistilBERT category → similar past complaints (RAG) → Claude draft reply, if a key is set → owning team. Legal or fraud keywords are flagged urgent. Two cases go to manual triage:
    - confidence below 0.6;
    - messages under 8 words, because the model is overconfident on off-topic text ("hello, just wanted to say hi" scored 0.80 as a credit-card complaint).
+
+   Both RAG steps fail soft: with no index, text that's too short, or no Claude key, the ticket is still routed, just without similar cases or a draft. If Claude flags a complaint for escalation, it's marked urgent.
 3. **Weekly drift check & retrain:** pulls current customers, runs `/drift/check`, and if retraining is recommended calls `/retrain` and reports whether the candidate was promoted or rejected.
 
 Slack steps are skipped when `SLACK_WEBHOOK_URL` is empty. To connect a real CRM, replace **Pull … customers** and the `/actions` nodes with HubSpot or Salesforce nodes.
@@ -134,13 +174,13 @@ Slack steps are skipped when `SLACK_WEBHOOK_URL` is empty. To connect a real CRM
 
 - Demo customers come from the training data, so their scores and batch ROC-AUC are in-sample.
 - `/retrain` retrains on the same static file. In production that file would be refreshed with newly labeled customers first.
-- The drift scenarios are simulated; there is no real time-stamped production data.
+- The Telco drift scenarios are simulated. Real drift is only measured in the Online Retail backtest, which is an offline replay; the live API still serves the Telco model.
 - `mlflow.db` from the original experiments references Windows paths and a different project, so treat it as history. The serving model's metrics live in `models/churn_scoring/meta.json`.
 
 ## Layout
 
 ```
-service/          FastAPI app, churn model + calibration, PSI drift, complaints classifier, Dockerfile
+service/          FastAPI app, churn model + calibration, PSI drift, complaints classifier, RAG (pgvector + Claude), Dockerfile
 n8n/              workflow generator + importable workflows
 dashboard/        Streamlit ops dashboard
 tests/            API tests (pytest)

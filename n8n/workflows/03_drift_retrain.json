@@ -14,7 +14,7 @@
           ]
         }
       },
-      "id": "5065179b-8e97-5933-9b63-1b9f726dcfaa",
+      "id": "1b596a4c-96f3-5e1f-aa20-c220af0c545e",
       "name": "Every Monday 07:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -25,7 +25,7 @@
     },
     {
       "parameters": {},
-      "id": "ecbf6e81-59b7-5335-bd75-e23877d93643",
+      "id": "4369a8f2-19e7-53b3-89ed-eef1ccb97503",
       "name": "Run manually",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -48,7 +48,7 @@
         },
         "options": {}
       },
-      "id": "1b596a4c-96f3-5e1f-aa20-c220af0c545e",
+      "id": "0139aed1-e6e4-5d89-9c26-bc2c5359ab2b",
       "name": "Pull current customers",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -75,7 +75,7 @@
         "jsonBody": "={{ JSON.stringify({ customers: $json.customers }) }}",
         "options": {}
       },
-      "id": "4369a8f2-19e7-53b3-89ed-eef1ccb97503",
+      "id": "d0cd0fbb-0f8d-5caa-ba2c-db2908be88b1",
       "name": "Check drift",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -95,7 +95,7 @@
           },
           "conditions": [
             {
-              "id": "0f500811-c895-52d7-ba8c-edb7f529a7c0",
+              "id": "5065179b-8e97-5933-9b63-1b9f726dcfaa",
               "leftValue": "={{ $json.retrain_recommended }}",
               "operator": {
                 "type": "boolean",
@@ -108,7 +108,7 @@
         },
         "options": {}
       },
-      "id": "5d6d7c8b-f033-537e-8a78-c3985a35aa87",
+      "id": "ecbf6e81-59b7-5335-bd75-e23877d93643",
       "name": "Retrain recommended?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
@@ -134,7 +134,7 @@
           "timeout": 300000
         }
       },
-      "id": "0139aed1-e6e4-5d89-9c26-bc2c5359ab2b",
+      "id": "096201df-0e69-5226-82ca-ef2839472823",
       "name": "Retrain model",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -147,7 +147,7 @@
       "parameters": {
         "jsCode": "const d = $('Check drift').first().json;\nconst r = $input.first().json;\nconst verdict = r.promoted ? 'new model promoted' : 'candidate REJECTED (CV ROC-AUC regressed) - old model kept';\nconst text = [\n  `*Drift check: retrain triggered* - ${verdict}.`,\n  `Drifted features: ${d.drifted_features.join(', ')} - ` +\n    `${(d.drifted_importance_mass * 100).toFixed(0)}% of model importance (threshold ${(d.importance_drift_threshold * 100).toFixed(0)}%).`,\n  d.roc_auc_drop === null ? 'No labels supplied - performance check skipped.'\n    : `ROC-AUC drop ${d.roc_auc_drop.toFixed(3)} (threshold ${d.roc_auc_drop_threshold}).`,\n  `CV ROC-AUC: ${r.previous_cv_roc_auc.toFixed(4)} \u2192 ${r.candidate_cv_roc_auc.toFixed(4)}`,\n].join('\\n');\nreturn [{ json: { text, promoted: r.promoted, previous_cv_roc_auc: r.previous_cv_roc_auc, candidate_cv_roc_auc: r.candidate_cv_roc_auc } }];"
       },
-      "id": "d0cd0fbb-0f8d-5caa-ba2c-db2908be88b1",
+      "id": "17b7c4b3-ab48-51bc-92ad-854447fa7219",
       "name": "Summarize retrain",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -174,7 +174,7 @@
         "jsonBody": "={{ JSON.stringify({ action: $json.promoted ? 'model_promoted' : 'model_rejected', details: { previous_cv_roc_auc: $json.previous_cv_roc_auc, candidate_cv_roc_auc: $json.candidate_cv_roc_auc } }) }}",
         "options": {}
       },
-      "id": "096201df-0e69-5226-82ca-ef2839472823",
+      "id": "1601b18b-3a14-56b5-a02d-8b2921c6f8c0",
       "name": "Log retrain",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -187,7 +187,7 @@
       "parameters": {
         "jsCode": "// skip Slack when no webhook is configured\nreturn $env.SLACK_WEBHOOK_URL ? $input.all() : [];"
       },
-      "id": "17b7c4b3-ab48-51bc-92ad-854447fa7219",
+      "id": "eeecaa9f-bfb1-50a8-bbdc-09172e690987",
       "name": "Slack configured?",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -205,7 +205,7 @@
         "jsonBody": "={{ JSON.stringify({ text: $json.text }) }}",
         "options": {}
       },
-      "id": "1601b18b-3a14-56b5-a02d-8b2921c6f8c0",
+      "id": "dd479e8f-0855-5389-865e-7a64a3a2717f",
       "name": "Post to Slack",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -233,7 +233,7 @@
         "jsonBody": "={{ JSON.stringify({ action: 'drift_check_healthy', details: { drifted_features: $json.drifted_features, drifted_importance_mass: $json.drifted_importance_mass } }) }}",
         "options": {}
       },
-      "id": "eeecaa9f-bfb1-50a8-bbdc-09172e690987",
+      "id": "d3d248c1-a08b-560b-bc49-810ffe320d3d",
       "name": "Log healthy check",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,

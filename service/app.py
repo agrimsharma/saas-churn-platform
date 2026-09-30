@@ -16,7 +16,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from service import churn_model, complaints, drift
+from service import churn_model, complaints, drift, rag
 
 ROOT = Path(__file__).resolve().parents[1]
 DRIFT_SUMMARY_PATH = ROOT / "reports" / "drift_summary.json"
@@ -86,6 +86,12 @@ class ClassifyRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=20000)
 
 
+class SimilarRequest(BaseModel):
+    text: str = Field(..., min_length=20, max_length=20000)
+    k: int = Field(5, ge=1, le=20)
+    product: Optional[str] = None  # restrict to one CFPB product, e.g. "Debt collection"
+
+
 class Action(BaseModel):
     customer_id: Optional[str] = None
     action: str
@@ -104,6 +110,7 @@ def health():
         },
         # don't force the (slow) DistilBERT load just for a health check
         "complaints_classifier_loaded": complaints._model is not None,
+        "reply_drafting_configured": rag.drafting_configured(),
     }
 
 
@@ -139,6 +146,37 @@ def drift_check(req: DriftCheckRequest):
                          model["meta"].get("cv_roc_auc_mean"))
     result["model_trained_at"] = model["meta"].get("trained_at")
     return result
+
+
+def _similar(req: SimilarRequest):
+    try:
+        conn = rag.connect()
+    except Exception as e:  # db not running / not configured
+        raise HTTPException(status_code=503, detail=f"complaint index unavailable: {type(e).__name__}")
+    try:
+        if rag.count(conn) == 0:
+            raise HTTPException(status_code=503, detail="complaint index is empty - run scripts/build_complaint_index.py")
+        return rag.search(conn, rag.embed([req.text])[0], k=req.k, product=req.product)
+    finally:
+        conn.close()
+
+
+@app.post("/complaints/similar", dependencies=[Depends(require_key)])
+async def similar_complaints(req: SimilarRequest):
+    """Most similar past CFPB complaints, with how the company responded."""
+    return {"similar": await run_in_threadpool(_similar, req)}
+
+
+@app.post("/complaints/draft", dependencies=[Depends(require_key)])
+async def draft_complaint_reply(req: SimilarRequest):
+    """Retrieve similar past complaints, then have Claude draft a reply grounded in them."""
+    similar = await run_in_threadpool(_similar, req)
+    try:
+        draft = await run_in_threadpool(rag.draft_reply, req.text, similar)
+    except rag.DraftingUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return {**draft, "similar": [{k: c[k] for k in ("complaint_id", "product", "issue", "company_response", "similarity")}
+                                 for c in similar]}
 
 
 @app.get("/drift", dependencies=[Depends(require_key)])
