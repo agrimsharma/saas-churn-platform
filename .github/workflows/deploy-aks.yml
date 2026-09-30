@@ -1,0 +1,43 @@
+name: Deploy to AKS
+
+# CD for the recording-session cluster. Inert unless the cluster exists: infra/session/up.sh sets
+# the repo variables below, down.sh removes them. Logs in with OIDC - no Azure secret is stored.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["service/**", "dashboard/**", "n8n/**", "deploy/helm/**", "requirements-*.txt"]
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-aks
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.AKS_NAME != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Build images in ACR (remote, amd64)
+        run: |
+          TAG=${GITHUB_SHA::12}
+          az acr build -r "${{ vars.ACR_NAME }}" -t "churn-api:$TAG" -f service/Dockerfile --build-arg WITH_NLP=true . --no-logs -o none
+          az acr build -r "${{ vars.ACR_NAME }}" -t "churn-dashboard:$TAG" -f dashboard/Dockerfile . --no-logs -o none
+      - uses: azure/setup-helm@v4
+      - uses: azure/setup-kubectl@v4
+      - name: Roll out
+        run: |
+          TAG=${GITHUB_SHA::12}
+          az aks get-credentials -g "${{ vars.AKS_RG }}" -n "${{ vars.AKS_NAME }}" --overwrite-existing
+          helm upgrade churn deploy/helm/churn-platform -n churn --reuse-values --set api.image.tag=$TAG --set dashboard.image.tag=$TAG --wait --timeout 15m
+          kubectl -n churn rollout status deploy/churn-api --timeout=10m
+          kubectl -n churn rollout status deploy/churn-dashboard --timeout=5m
