@@ -12,3 +12,4 @@ checkpoints
 notebooks
 *.log
 **/__pycache__
+.git
