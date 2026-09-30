@@ -1,0 +1,356 @@
+{
+  "id": "ChurnDriftChk03",
+  "name": "Churn - weekly drift check & retrain",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "5065179b-8e97-5933-9b63-1b9f726dcfaa",
+      "name": "Every Monday 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ecbf6e81-59b7-5335-bd75-e23877d93643",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHURN_API_URL }}/demo/customers?n=1000&scenario=both",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CHURN_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1b596a4c-96f3-5e1f-aa20-c220af0c545e",
+      "name": "Pull current customers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHURN_API_URL }}/drift/check",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CHURN_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ customers: $json.customers }) }}",
+        "options": {}
+      },
+      "id": "4369a8f2-19e7-53b3-89ed-eef1ccb97503",
+      "name": "Check drift",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0f500811-c895-52d7-ba8c-edb7f529a7c0",
+              "leftValue": "={{ $json.retrain_recommended }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5d6d7c8b-f033-537e-8a78-c3985a35aa87",
+      "name": "Retrain recommended?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHURN_API_URL }}/retrain",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CHURN_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "0139aed1-e6e4-5d89-9c26-bc2c5359ab2b",
+      "name": "Retrain model",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Check drift').first().json;\nconst r = $input.first().json;\nconst verdict = r.promoted ? 'new model promoted' : 'candidate REJECTED (CV ROC-AUC regressed) - old model kept';\nconst text = [\n  `*Drift check: retrain triggered* - ${verdict}.`,\n  `Drifted features: ${d.drifted_features.join(', ')} - ` +\n    `${(d.drifted_importance_mass * 100).toFixed(0)}% of model importance (threshold ${(d.importance_drift_threshold * 100).toFixed(0)}%).`,\n  d.roc_auc_drop === null ? 'No labels supplied - performance check skipped.'\n    : `ROC-AUC drop ${d.roc_auc_drop.toFixed(3)} (threshold ${d.roc_auc_drop_threshold}).`,\n  `CV ROC-AUC: ${r.previous_cv_roc_auc.toFixed(4)} \u2192 ${r.candidate_cv_roc_auc.toFixed(4)}`,\n].join('\\n');\nreturn [{ json: { text, promoted: r.promoted, previous_cv_roc_auc: r.previous_cv_roc_auc, candidate_cv_roc_auc: r.candidate_cv_roc_auc } }];"
+      },
+      "id": "d0cd0fbb-0f8d-5caa-ba2c-db2908be88b1",
+      "name": "Summarize retrain",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHURN_API_URL }}/actions",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CHURN_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ action: $json.promoted ? 'model_promoted' : 'model_rejected', details: { previous_cv_roc_auc: $json.previous_cv_roc_auc, candidate_cv_roc_auc: $json.candidate_cv_roc_auc } }) }}",
+        "options": {}
+      },
+      "id": "096201df-0e69-5226-82ca-ef2839472823",
+      "name": "Log retrain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// skip Slack when no webhook is configured\nreturn $env.SLACK_WEBHOOK_URL ? $input.all() : [];"
+      },
+      "id": "17b7c4b3-ab48-51bc-92ad-854447fa7219",
+      "name": "Slack configured?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text }) }}",
+        "options": {}
+      },
+      "id": "1601b18b-3a14-56b5-a02d-8b2921c6f8c0",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHURN_API_URL }}/actions",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CHURN_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ action: 'drift_check_healthy', details: { drifted_features: $json.drifted_features, drifted_importance_mass: $json.drifted_importance_mass } }) }}",
+        "options": {}
+      },
+      "id": "eeecaa9f-bfb1-50a8-bbdc-09172e690987",
+      "name": "Log healthy check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Every Monday 07:00": {
+      "main": [
+        [
+          {
+            "node": "Pull current customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Pull current customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pull current customers": {
+      "main": [
+        [
+          {
+            "node": "Check drift",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check drift": {
+      "main": [
+        [
+          {
+            "node": "Retrain recommended?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrain recommended?": {
+      "main": [
+        [
+          {
+            "node": "Retrain model",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log healthy check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrain model": {
+      "main": [
+        [
+          {
+            "node": "Summarize retrain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize retrain": {
+      "main": [
+        [
+          {
+            "node": "Log retrain",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Slack configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack configured?": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

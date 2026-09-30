@@ -1,0 +1,135 @@
+{
+  "id": "ChurnComplaint02",
+  "name": "Churn - complaint routing",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "complaint",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "bf802696-316b-54eb-913a-7ff77fa12a78",
+      "name": "Complaint received",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "ddbb89ac-c97a-502f-80c8-da5be2102413"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHURN_API_URL }}/classify",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CHURN_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.body.text }) }}",
+        "options": {}
+      },
+      "id": "4f3d6736-3a9b-5770-bcb2-7849be6bc6c1",
+      "name": "Classify complaint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Map the model's category to an owning team; send uncertain or legally sensitive cases to a human.\nconst TEAMS = {\n  credit_card: 'cards-support',\n  credit_reporting: 'credit-bureau-disputes',\n  debt_collection: 'collections-compliance',\n  mortgages_and_loans: 'lending-servicing',\n  retail_banking: 'branch-banking',\n};\nconst MIN_CONFIDENCE = 0.6;\nconst URGENT = /\\b(lawyer|attorney|lawsuit|sue|cfpb|fraud|identity theft|stolen)\\b/i;\n\nconst complaint = $('Complaint received').item.json.body;\nconst r = $input.item.json;\nconst lowConfidence = r.confidence < MIN_CONFIDENCE;\n\nreturn { json: {\n  customer_id: complaint.customer_id || null,\n  action: 'route_complaint',\n  details: {\n    category: r.category,\n    confidence: r.confidence,\n    team: lowConfidence ? 'manual-triage' : TEAMS[r.category],\n    priority: URGENT.test(complaint.text) ? 'urgent' : 'normal',\n    reason: lowConfidence ? `low model confidence (${r.confidence})` : 'auto-routed',\n    excerpt: complaint.text.slice(0, 280),\n  },\n}};",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "1c56d04b-8fe2-5bef-a65d-c8a075ebcde2",
+      "name": "Route to team",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHURN_API_URL }}/actions",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CHURN_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "7758fa11-8e67-5a96-86a4-964c69baa895",
+      "name": "Log routed ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Complaint received": {
+      "main": [
+        [
+          {
+            "node": "Classify complaint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify complaint": {
+      "main": [
+        [
+          {
+            "node": "Route to team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route to team": {
+      "main": [
+        [
+          {
+            "node": "Log routed ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
