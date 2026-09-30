@@ -33,7 +33,17 @@ docker compose exec n8n n8n import:workflow --separate --input=/workflows
 | API docs | http://localhost:8000/docs |
 | Dashboard | http://localhost:8501 |
 
-The complaint workflow must be **activated** before its webhook listens:
+To run a workflow without the UI (the CLI needs its own task-broker port while n8n is running):
+
+```bash
+docker compose exec -e N8N_RUNNERS_BROKER_PORT=5690 n8n n8n execute --id=ChurnRetention01
+```
+
+The complaint workflow must be **published** before its webhook listens. Either click **Publish** in the editor, or:
+
+```bash
+docker compose exec n8n n8n publish:workflow --id=ChurnComplaint02 && docker compose restart n8n
+```
 
 ```bash
 curl -X POST http://localhost:5678/webhook/complaint -H 'Content-Type: application/json' \
@@ -113,7 +123,9 @@ A plain "share of columns drifted" metric treats the harmless price shift and th
    - The offer comes from the customer's contract, support and payment method.
    - One Slack digest per run, including revenue at risk.
    - Thresholds and offers live in n8n, so business rules change without redeploying the model.
-2. **Complaint routing:** webhook → DistilBERT category → owning team. Below 0.6 confidence goes to manual triage; legal or fraud keywords are flagged urgent.
+2. **Complaint routing:** webhook → DistilBERT category → owning team. Legal or fraud keywords are flagged urgent. Two cases go to manual triage:
+   - confidence below 0.6;
+   - messages under 8 words, because the model is overconfident on off-topic text ("hello, just wanted to say hi" scored 0.80 as a credit-card complaint).
 3. **Weekly drift check & retrain:** pulls current customers, runs `/drift/check`, and if retraining is recommended calls `/retrain` and reports whether the candidate was promoted or rejected.
 
 Slack steps are skipped when `SLACK_WEBHOOK_URL` is empty. To connect a real CRM, replace **Pull … customers** and the `/actions` nodes with HubSpot or Salesforce nodes.

@@ -168,11 +168,16 @@ const TEAMS = {
   retail_banking: 'branch-banking',
 };
 const MIN_CONFIDENCE = 0.6;
+// the model is overconfident on off-topic text ("hello, just wanted to say hi" -> credit_card at 0.80),
+// and real complaints are paragraphs (the CFPB training data), so very short messages go to a human
+const MIN_WORDS = 8;
 const URGENT = /\b(lawyer|attorney|lawsuit|sue|cfpb|fraud|identity theft|stolen)\b/i;
 
 const complaint = $('Complaint received').item.json.body;
 const r = $input.item.json;
+const tooShort = complaint.text.trim().split(/\s+/).length < MIN_WORDS;
 const lowConfidence = r.confidence < MIN_CONFIDENCE;
+const needsHuman = tooShort || lowConfidence;
 
 return { json: {
   customer_id: complaint.customer_id || null,
@@ -180,9 +185,10 @@ return { json: {
   details: {
     category: r.category,
     confidence: r.confidence,
-    team: lowConfidence ? 'manual-triage' : TEAMS[r.category],
+    team: needsHuman ? 'manual-triage' : TEAMS[r.category],
     priority: URGENT.test(complaint.text) ? 'urgent' : 'normal',
-    reason: lowConfidence ? `low model confidence (${r.confidence})` : 'auto-routed',
+    reason: tooShort ? `too short to classify reliably (< ${MIN_WORDS} words)`
+      : lowConfidence ? `low model confidence (${r.confidence})` : 'auto-routed',
     excerpt: complaint.text.slice(0, 280),
   },
 }};
