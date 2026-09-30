@@ -2,6 +2,7 @@
 
 Run:  streamlit run dashboard/app.py   (CHURN_API_URL / CHURN_API_KEY env vars)
 """
+import json
 import os
 
 import pandas as pd
@@ -9,6 +10,7 @@ import requests
 import streamlit as st
 
 API = os.environ.get("CHURN_API_URL", "http://localhost:8000")
+REPORTS = os.environ.get("REPORTS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "reports"))
 HEADERS = {"X-API-Key": os.environ["CHURN_API_KEY"]} if os.environ.get("CHURN_API_KEY") else {}
 
 st.set_page_config(page_title="Churn Platform", layout="wide")
@@ -73,3 +75,18 @@ if st.button("Run drift check"):
     psi = pd.Series(r["feature_psi"], name="PSI")
     st.bar_chart(psi)
     st.caption(f"Population Stability Index per feature; > {r['psi_threshold']} counts as drifted.")
+
+# --- retraining backtest on real time-stamped data (scripts/retail_backtest.py) ------------
+st.subheader("Is retraining worth it? Backtest on 2 years of real transactions")
+path = os.path.join(REPORTS, "retail_backtest.json")
+if not os.path.exists(path):
+    st.info("Run `python scripts/retail_backtest.py` to generate the backtest.")
+else:
+    with open(path) as f:
+        bt = json.load(f)
+    monthly = pd.DataFrame(bt["monthly"])
+    st.line_chart(monthly.pivot(index="month", columns="policy", values="true_roc_auc"))
+    summary = pd.DataFrame(bt["summary"]).T[["mean_true_roc_auc", "min_true_roc_auc", "mean_top10_precision", "retrains"]]
+    st.dataframe(summary, width="stretch")
+    st.caption("UCI Online Retail II, monthly snapshots; churn = no purchase in the next 90 days. Models only "
+               "train on snapshots whose outcome was known at deployment time. True ROC-AUC is measured in hindsight.")

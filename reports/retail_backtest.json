@@ -1,0 +1,540 @@
+{
+  "horizon_days": 90,
+  "deploy_from": "2010-11",
+  "features": [
+    "recency_days",
+    "tenure_days_capped",
+    "invoices_180d",
+    "invoices_90d",
+    "invoices_prev_90d",
+    "spend_180d",
+    "spend_90d",
+    "spend_prev_90d",
+    "avg_invoice_value",
+    "distinct_products_180d",
+    "return_rate",
+    "is_uk"
+  ],
+  "summary": {
+    "static": {
+      "mean_true_roc_auc": 0.7426,
+      "min_true_roc_auc": 0.7078,
+      "mean_top10_precision": 0.7561,
+      "retrains": 0,
+      "retrain_months": []
+    },
+    "monthly": {
+      "mean_true_roc_auc": 0.7449,
+      "min_true_roc_auc": 0.7078,
+      "mean_top10_precision": 0.7638,
+      "retrains": 10,
+      "retrain_months": [
+        "2010-12",
+        "2011-01",
+        "2011-02",
+        "2011-03",
+        "2011-04",
+        "2011-05",
+        "2011-06",
+        "2011-07",
+        "2011-08",
+        "2011-09"
+      ]
+    },
+    "drift_triggered": {
+      "mean_true_roc_auc": 0.7414,
+      "min_true_roc_auc": 0.7078,
+      "mean_top10_precision": 0.7559,
+      "retrains": 1,
+      "retrain_months": [
+        "2011-01"
+      ]
+    }
+  },
+  "monthly": [
+    {
+      "month": "2010-11",
+      "policy": "static",
+      "customers": 3209,
+      "churn_rate": 0.5076,
+      "true_roc_auc": 0.7078,
+      "top10_precision": 0.7156,
+      "model_trained": "2010-11",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2010-11",
+      "policy": "monthly",
+      "customers": 3209,
+      "churn_rate": 0.5076,
+      "true_roc_auc": 0.7078,
+      "top10_precision": 0.7156,
+      "model_trained": "2010-11",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2010-11",
+      "policy": "drift_triggered",
+      "customers": 3209,
+      "churn_rate": 0.5076,
+      "true_roc_auc": 0.7078,
+      "top10_precision": 0.7156,
+      "model_trained": "2010-11",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2010-12",
+      "policy": "static",
+      "customers": 3479,
+      "churn_rate": 0.6206,
+      "true_roc_auc": 0.7431,
+      "top10_precision": 0.8357,
+      "model_trained": "2010-11",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": 0.7289,
+      "trigger_fired": false
+    },
+    {
+      "month": "2010-12",
+      "policy": "monthly",
+      "customers": 3479,
+      "churn_rate": 0.6206,
+      "true_roc_auc": 0.744,
+      "top10_precision": 0.8588,
+      "model_trained": "2010-12",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2010-12",
+      "policy": "drift_triggered",
+      "customers": 3479,
+      "churn_rate": 0.6206,
+      "true_roc_auc": 0.7431,
+      "top10_precision": 0.8357,
+      "model_trained": "2010-11",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": 0.7289,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-01",
+      "policy": "static",
+      "customers": 3415,
+      "churn_rate": 0.6234,
+      "true_roc_auc": 0.7623,
+      "top10_precision": 0.8504,
+      "model_trained": "2010-11",
+      "drifted_features": [
+        "recency_days"
+      ],
+      "drift_mass": 0.028,
+      "matured_auc": 0.6964,
+      "trigger_fired": true
+    },
+    {
+      "month": "2011-01",
+      "policy": "monthly",
+      "customers": 3415,
+      "churn_rate": 0.6234,
+      "true_roc_auc": 0.7631,
+      "top10_precision": 0.827,
+      "model_trained": "2011-01",
+      "drifted_features": [
+        "recency_days"
+      ],
+      "drift_mass": 0.027,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-01",
+      "policy": "drift_triggered",
+      "customers": 3415,
+      "churn_rate": 0.6234,
+      "true_roc_auc": 0.7631,
+      "top10_precision": 0.827,
+      "model_trained": "2011-01",
+      "drifted_features": [
+        "recency_days"
+      ],
+      "drift_mass": 0.028,
+      "matured_auc": 0.6964,
+      "trigger_fired": true
+    },
+    {
+      "month": "2011-02",
+      "policy": "static",
+      "customers": 3359,
+      "churn_rate": 0.6038,
+      "true_roc_auc": 0.75,
+      "top10_precision": 0.809,
+      "model_trained": "2010-11",
+      "drifted_features": [
+        "recency_days",
+        "tenure_days_capped"
+      ],
+      "drift_mass": 0.056,
+      "matured_auc": 0.7078,
+      "trigger_fired": true
+    },
+    {
+      "month": "2011-02",
+      "policy": "monthly",
+      "customers": 3359,
+      "churn_rate": 0.6038,
+      "true_roc_auc": 0.7451,
+      "top10_precision": 0.809,
+      "model_trained": "2011-02",
+      "drifted_features": [
+        "recency_days",
+        "tenure_days_capped"
+      ],
+      "drift_mass": 0.058,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-02",
+      "policy": "drift_triggered",
+      "customers": 3359,
+      "churn_rate": 0.6038,
+      "true_roc_auc": 0.7442,
+      "top10_precision": 0.809,
+      "model_trained": "2011-01",
+      "drifted_features": [
+        "recency_days"
+      ],
+      "drift_mass": 0.027,
+      "matured_auc": 0.7258,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-03",
+      "policy": "static",
+      "customers": 3349,
+      "churn_rate": 0.5772,
+      "true_roc_auc": 0.7469,
+      "top10_precision": 0.8084,
+      "model_trained": "2010-11",
+      "drifted_features": [
+        "recency_days",
+        "tenure_days_capped",
+        "invoices_90d",
+        "invoices_prev_90d",
+        "spend_90d",
+        "spend_prev_90d"
+      ],
+      "drift_mass": 0.223,
+      "matured_auc": 0.7431,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-03",
+      "policy": "monthly",
+      "customers": 3349,
+      "churn_rate": 0.5772,
+      "true_roc_auc": 0.7469,
+      "top10_precision": 0.7994,
+      "model_trained": "2011-03",
+      "drifted_features": [
+        "recency_days",
+        "tenure_days_capped",
+        "invoices_90d",
+        "invoices_prev_90d",
+        "spend_90d",
+        "spend_prev_90d"
+      ],
+      "drift_mass": 0.186,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-03",
+      "policy": "drift_triggered",
+      "customers": 3349,
+      "churn_rate": 0.5772,
+      "true_roc_auc": 0.7443,
+      "top10_precision": 0.8144,
+      "model_trained": "2011-01",
+      "drifted_features": [
+        "recency_days",
+        "tenure_days_capped",
+        "invoices_90d"
+      ],
+      "drift_mass": 0.08,
+      "matured_auc": 0.7434,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-04",
+      "policy": "static",
+      "customers": 3304,
+      "churn_rate": 0.5605,
+      "true_roc_auc": 0.7361,
+      "top10_precision": 0.7606,
+      "model_trained": "2010-11",
+      "drifted_features": [
+        "recency_days",
+        "tenure_days_capped"
+      ],
+      "drift_mass": 0.056,
+      "matured_auc": 0.7623,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-04",
+      "policy": "monthly",
+      "customers": 3304,
+      "churn_rate": 0.5605,
+      "true_roc_auc": 0.7368,
+      "top10_precision": 0.7697,
+      "model_trained": "2011-04",
+      "drifted_features": [
+        "recency_days",
+        "tenure_days_capped",
+        "invoices_90d"
+      ],
+      "drift_mass": 0.084,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-04",
+      "policy": "drift_triggered",
+      "customers": 3304,
+      "churn_rate": 0.5605,
+      "true_roc_auc": 0.7314,
+      "top10_precision": 0.7667,
+      "model_trained": "2011-01",
+      "drifted_features": [
+        "recency_days",
+        "tenure_days_capped"
+      ],
+      "drift_mass": 0.051,
+      "matured_auc": 0.7631,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-05",
+      "policy": "static",
+      "customers": 3049,
+      "churn_rate": 0.5208,
+      "true_roc_auc": 0.7495,
+      "top10_precision": 0.7664,
+      "model_trained": "2010-11",
+      "drifted_features": [
+        "recency_days",
+        "tenure_days_capped"
+      ],
+      "drift_mass": 0.056,
+      "matured_auc": 0.7623,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-05",
+      "policy": "monthly",
+      "customers": 3049,
+      "churn_rate": 0.5208,
+      "true_roc_auc": 0.7455,
+      "top10_precision": 0.727,
+      "model_trained": "2011-05",
+      "drifted_features": [
+        "recency_days",
+        "tenure_days_capped"
+      ],
+      "drift_mass": 0.063,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-05",
+      "policy": "drift_triggered",
+      "customers": 3049,
+      "churn_rate": 0.5208,
+      "true_roc_auc": 0.7447,
+      "top10_precision": 0.75,
+      "model_trained": "2011-01",
+      "drifted_features": [
+        "recency_days",
+        "tenure_days_capped"
+      ],
+      "drift_mass": 0.051,
+      "matured_auc": 0.7631,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-06",
+      "policy": "static",
+      "customers": 2659,
+      "churn_rate": 0.4994,
+      "true_roc_auc": 0.748,
+      "top10_precision": 0.7396,
+      "model_trained": "2010-11",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": 0.7469,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-06",
+      "policy": "monthly",
+      "customers": 2659,
+      "churn_rate": 0.4994,
+      "true_roc_auc": 0.7534,
+      "top10_precision": 0.766,
+      "model_trained": "2011-06",
+      "drifted_features": [
+        "tenure_days_capped"
+      ],
+      "drift_mass": 0.021,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-06",
+      "policy": "drift_triggered",
+      "customers": 2659,
+      "churn_rate": 0.4994,
+      "true_roc_auc": 0.7473,
+      "top10_precision": 0.7396,
+      "model_trained": "2011-01",
+      "drifted_features": [
+        "tenure_days_capped"
+      ],
+      "drift_mass": 0.024,
+      "matured_auc": 0.7443,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-07",
+      "policy": "static",
+      "customers": 2724,
+      "churn_rate": 0.4827,
+      "true_roc_auc": 0.7552,
+      "top10_precision": 0.7169,
+      "model_trained": "2010-11",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": 0.7361,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-07",
+      "policy": "monthly",
+      "customers": 2724,
+      "churn_rate": 0.4827,
+      "true_roc_auc": 0.7605,
+      "top10_precision": 0.75,
+      "model_trained": "2011-07",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-07",
+      "policy": "drift_triggered",
+      "customers": 2724,
+      "churn_rate": 0.4827,
+      "true_roc_auc": 0.7543,
+      "top10_precision": 0.7279,
+      "model_trained": "2011-01",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": 0.7314,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-08",
+      "policy": "static",
+      "customers": 2771,
+      "churn_rate": 0.4417,
+      "true_roc_auc": 0.7457,
+      "top10_precision": 0.6823,
+      "model_trained": "2010-11",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": 0.7495,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-08",
+      "policy": "monthly",
+      "customers": 2771,
+      "churn_rate": 0.4417,
+      "true_roc_auc": 0.7531,
+      "top10_precision": 0.7184,
+      "model_trained": "2011-08",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-08",
+      "policy": "drift_triggered",
+      "customers": 2771,
+      "churn_rate": 0.4417,
+      "true_roc_auc": 0.7428,
+      "top10_precision": 0.6823,
+      "model_trained": "2011-01",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": 0.7447,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-09",
+      "policy": "static",
+      "customers": 2772,
+      "churn_rate": 0.3929,
+      "true_roc_auc": 0.7235,
+      "top10_precision": 0.6318,
+      "model_trained": "2010-11",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": 0.748,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-09",
+      "policy": "monthly",
+      "customers": 2772,
+      "churn_rate": 0.3929,
+      "true_roc_auc": 0.7378,
+      "top10_precision": 0.6606,
+      "model_trained": "2011-09",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": null,
+      "trigger_fired": false
+    },
+    {
+      "month": "2011-09",
+      "policy": "drift_triggered",
+      "customers": 2772,
+      "churn_rate": 0.3929,
+      "true_roc_auc": 0.732,
+      "top10_precision": 0.6462,
+      "model_trained": "2011-01",
+      "drifted_features": [],
+      "drift_mass": 0.0,
+      "matured_auc": 0.7473,
+      "trigger_fired": false
+    }
+  ]
+}
