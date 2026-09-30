@@ -1,0 +1,10 @@
+# up.sh sets the image repositories (ACR), the ingress domain and the secrets
+api:
+  image: {pullPolicy: Always}
+  complaintsModel: {source: hub}
+dashboard:
+  image: {pullPolicy: Always}
+ingress:
+  tls: {enabled: true, clusterIssuer: letsencrypt}
+monitoring:
+  serviceMonitor: true

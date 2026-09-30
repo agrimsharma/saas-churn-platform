@@ -38,7 +38,7 @@ jobs:
       - name: n8n workflows are in sync with their generator
         run: |
           python n8n/build_workflows.py
-          git diff --exit-code n8n/workflows
+          git diff --exit-code n8n/workflows deploy/helm/churn-platform/files/workflows
 
   docker:
     runs-on: ubuntu-latest
@@ -47,3 +47,19 @@ jobs:
       - run: cp .env.example .env
       - run: docker compose config --quiet
       - run: docker compose build api dashboard
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: lint + render + schema check (kind and AKS values)
+        run: |
+          CHART=deploy/helm/churn-platform
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          for target in kind aks; do
+            args="-f $CHART/values-$target.yaml --set secrets.apiKey=ci --set secrets.postgresPassword=ci --set api.complaintsModel.hub=ci/model"
+            helm lint "$CHART" $args
+            helm template ci "$CHART" $args > rendered-$target.yaml
+            ./kubeconform -summary -ignore-missing-schemas rendered-$target.yaml   # ServiceMonitor is a CRD
+          done

@@ -1,0 +1,98 @@
+{{- $sel := dict "component" "churn-api" "root" . }}
+{{- $model := .Values.api.complaintsModel }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "churn.name" . }}-api
+  labels:
+    {{- include "churn.labels" . | nindent 4 }}
+    {{- include "churn.selector" $sel | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "churn.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "churn.selector" $sel | nindent 8 }}
+      annotations:
+        checksum/secrets: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      initContainers:
+        # the public IBM Telco dataset; the model trains on it at startup (~5 s)
+        - name: fetch-data
+          image: curlimages/curl:8.11.1
+          args: ["-fsSL", "-o", "/data/Telco-Customer-Churn.csv", {{ .Values.api.telcoDataUrl | quote }}]
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      containers:
+        - name: api
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          ports:
+            - {name: http, containerPort: 8000}
+          env:
+            - {name: CHURN_DATA_PATH, value: /data/Telco-Customer-Churn.csv}
+            - {name: ACTIONS_LOG_PATH, value: /state/actions.jsonl}
+            - {name: HF_HOME, value: /cache/hf}
+            - {name: HOME, value: /tmp}
+            - name: COMPLAINTS_MODEL
+              {{- if eq $model.source "hostPath" }}
+              value: /models/complaints-classifier
+              {{- else }}
+              value: {{ required "api.complaintsModel.hub (Hub repo id)" $model.hub | quote }}
+              {{- end }}
+            {{- range $k := list "API_KEY" "DATABASE_URL" "ANTHROPIC_API_KEY" }}
+            - name: {{ $k }}
+              valueFrom: {secretKeyRef: {name: {{ include "churn.name" $ }}-secrets, key: {{ $k }}}}
+            {{- end }}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: data, mountPath: /data, readOnly: true}
+            - {name: churn-model, mountPath: /app/models/churn_scoring}   # trained at startup
+            - {name: state, mountPath: /state}
+            - {name: cache, mountPath: /cache}
+            - {name: tmp, mountPath: /tmp}
+            {{- if eq $model.source "hostPath" }}
+            - {name: complaints-model, mountPath: /models/complaints-classifier, readOnly: true}
+            {{- end }}
+      volumes:
+        - {name: data, emptyDir: {}}
+        - {name: churn-model, emptyDir: {}}
+        - {name: state, emptyDir: {}}
+        - {name: cache, emptyDir: {sizeLimit: 2Gi}}
+        - {name: tmp, emptyDir: {}}
+        {{- if eq $model.source "hostPath" }}
+        - name: complaints-model
+          hostPath: {path: {{ $model.hostPath }}, type: Directory}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "churn.name" . }}-api
+  labels:
+    {{- include "churn.labels" . | nindent 4 }}
+    {{- include "churn.selector" $sel | nindent 4 }}
+spec:
+  selector:
+    {{- include "churn.selector" $sel | nindent 4 }}
+  ports:
+    - {name: http, port: 8000, targetPort: http}

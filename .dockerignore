@@ -2,8 +2,10 @@
 .venv-drift
 .env
 data
-models
-reports
+models/*
+!models/metrics.json
+reports/actions.jsonl
+reports/*.html
 mlruns
 mlflow.db
 checkpoints

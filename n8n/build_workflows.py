@@ -7,7 +7,10 @@ import itertools
 import json
 import os
 import uuid
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workflows")
+HERE = os.path.dirname(os.path.abspath(__file__))
+# n8n/workflows for docker compose; the Helm chart gets its own copy (Helm can only read files
+# inside the chart directory)
+OUTS = [os.path.join(HERE, "workflows"), os.path.join(HERE, "..", "deploy", "helm", "churn-platform", "files", "workflows")]
 API = "={{ $env.CHURN_API_URL }}"
 AUTH = {"sendHeaders": True, "headerParameters": {"parameters": [{"name": "X-API-Key", "value": "={{ $env.CHURN_API_KEY }}"}]}}
 
@@ -271,6 +274,8 @@ conns = connect(
 wf3 = workflow("Churn - weekly drift check & retrain", "ChurnDriftChk03", nodes, conns, [])
 
 for fname, wf in [("01_retention_scoring.json", wf1), ("02_complaint_routing.json", wf2), ("03_drift_retrain.json", wf3)]:
-    with open(os.path.join(OUT, fname), "w") as f:
-        json.dump(wf, f, indent=2)
+    for out in OUTS:
+        os.makedirs(out, exist_ok=True)
+        with open(os.path.join(out, fname), "w") as f:
+            json.dump(wf, f, indent=2)
     print(fname, len(wf["nodes"]), "nodes")

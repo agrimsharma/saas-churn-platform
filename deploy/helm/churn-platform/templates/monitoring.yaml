@@ -1,0 +1,29 @@
+{{- if .Values.monitoring.serviceMonitor }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "churn.name" . }}-api
+  labels:
+    {{- include "churn.labels" . | nindent 4 }}
+    {{- toYaml .Values.monitoring.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "churn.selector" (dict "component" "churn-api" "root" .) | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics/
+      interval: 15s
+---
+# picked up by the Grafana sidecar (kube-prometheus-stack, label grafana_dashboard)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "churn.name" . }}-dashboard-grafana
+  labels:
+    {{- include "churn.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  churn-platform.json: |-
+{{ .Files.Get "dashboards/churn-platform.json" | indent 4 }}
+{{- end }}

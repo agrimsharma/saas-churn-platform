@@ -22,7 +22,7 @@ from service import churn_model, complaints, drift, rag
 
 ROOT = Path(__file__).resolve().parents[1]
 DRIFT_SUMMARY_PATH = ROOT / "reports" / "drift_summary.json"
-ACTIONS_LOG_PATH = ROOT / "reports" / "actions.jsonl"
+ACTIONS_LOG_PATH = Path(os.environ.get("ACTIONS_LOG_PATH", ROOT / "reports" / "actions.jsonl"))
 DEMO_ACTIONS_PATH = ROOT / "reports" / "demo_actions.jsonl"  # snapshot of a real n8n run
 # free public deployment (Hugging Face Space): nothing that costs money or changes shared state
 PUBLIC_DEMO = os.environ.get("PUBLIC_DEMO", "").lower() in ("1", "true", "yes")
