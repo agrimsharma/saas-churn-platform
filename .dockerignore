@@ -1,0 +1,12 @@
+.venv
+.venv-drift
+.env
+data
+models
+reports
+mlruns
+mlflow.db
+checkpoints
+notebooks
+*.log
+**/__pycache__
