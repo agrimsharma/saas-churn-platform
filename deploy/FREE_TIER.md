@@ -11,18 +11,18 @@ calls Claude (drafting shows real examples instead). The first visit after an id
 
 ## 2. Database → Neon (~5 min)
 
-1. neon.tech → sign up (Google/GitHub) → create a project (region: Europe).
-2. Copy the connection string (Dashboard → Connect; keep `?sslmode=require`).
-3. Copy the 40k-complaint vector index into it (~10 s, no re-embedding; needs `docker compose up -d db`):
+1. neon.tech → sign up (Google/GitHub) → create a project (region: Europe). No extra services needed.
+2. Copy the connection string (Connect → direct connection, not pooled; keep `?sslmode=require`).
+3. With `docker compose up -d db` running, paste it into this (hidden input): it copies the 40k-complaint
+   vector index into Neon (~10 s, no re-embedding) and saves it as the Modal secret `churn-neon`:
    ```bash
-   TARGET_DATABASE_URL='postgresql://...neon.tech/neondb?sslmode=require' ./scripts/copy_index_to_postgres.sh
+   ./scripts/setup_neon.sh
    ```
 
 ## 3. App → Modal (~15 min, the first image build is the slow part)
 
 ```bash
 ~/Downloads/Projects/.hf-venv/bin/modal token new      # once, if not done for the doppelganger
-modal secret create churn-neon DATABASE_URL='postgresql://...neon.tech/neondb?sslmode=require'
 modal deploy deploy/modal_app.py
 ```
 → `https://<workspace>--churn-platform.modal.run`
