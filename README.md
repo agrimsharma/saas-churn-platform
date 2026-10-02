@@ -5,7 +5,11 @@ Churn prediction served behind a FastAPI service, with **n8n** workflows that tu
 - **Complaint routing:** send each incoming complaint to the right team.
 - **Drift-triggered retraining:** check for drift weekly and retrain, with a promotion gate.
 
-A small Streamlit dashboard shows what the workflows did.
+A Streamlit dashboard shows the predictions, the complaint triage and what the workflows did.
+
+**Live demo: [agrimsharma--churn-platform.modal.run](https://agrimsharma--churn-platform.modal.run)** (free hosting: the first visit after a quiet spell takes ~30 s while the container starts. The public demo shows example Claude drafts instead of calling Claude live, and runs without n8n. Both run in the [full deployment](#full-deployment-on-kubernetes) below.)
+
+<p align="center"><img src="docs/screenshots/dashboard-rag.jpg" width="820" alt="Complaint triage: classifier, the five most similar past complaints, and a Claude-drafted reply citing them"></p>
 
 ```
             ┌───────────────────── n8n (localhost:5678) ─────────────────────┐
@@ -145,7 +149,7 @@ How to read this:
 | `GET /health` | Model version and CV ROC-AUC. No auth. |
 | `POST /score` | `{"customers": [...]}` → calibrated churn probability + top 3 risk drivers per customer (exact XGBoost SHAP contributions, mapped back to CRM fields) |
 | `POST /drift/check` | ≥ 100 customers (+ optional `churned` outcomes) → per-feature PSI, importance-weighted drift, retrain recommendation |
-| `POST /retrain` | Retrains; **promotes only if 5-fold CV ROC-AUC ≥ current − 0.01**, else keeps the old model |
+| `POST /retrain` | Retrains on the base data plus any newly labelled customers in the body (`customers` + `churned`); **promotes only if 5-fold CV ROC-AUC ≥ current − 0.01**, else keeps the old model |
 | `POST /classify` | `{"text": "..."}` → complaint category + confidence (needs `WITH_NLP=true`) |
 | `POST /complaints/similar` | `{"text": "...", "k": 5, "product": null}` → most similar past CFPB complaints (pgvector), with issue and company response |
 | `POST /complaints/draft` | Same input → Claude drafts a reply grounded in the retrieved cases: `reply`, `cited_complaint_ids`, `escalate`. Needs `ANTHROPIC_API_KEY`; returns 503 without it |
@@ -166,16 +170,49 @@ How to read this:
    - messages under 8 words, because the model is overconfident on off-topic text ("hello, just wanted to say hi" scored 0.80 as a credit-card complaint).
 
    Both RAG steps fail soft: with no index, text that's too short, or no Claude key, the ticket is still routed, just without similar cases or a draft. If Claude flags a complaint for escalation, it's marked urgent.
-3. **Weekly drift check & retrain:** pulls current customers, runs `/drift/check`, and if retraining is recommended calls `/retrain` and reports whether the candidate was promoted or rejected.
+3. **Weekly drift check & retrain:** pulls the current customers with last period's outcomes, runs `/drift/check` (feature drift plus the performance check), and if retraining is recommended calls `/retrain` with that labelled batch. The candidate learns the shifted distribution, and the run reports whether it was promoted or rejected.
 
 Slack steps are skipped when `SLACK_WEBHOOK_URL` is empty. To connect a real CRM, replace **Pull … customers** and the `/actions` nodes with HubSpot or Salesforce nodes.
 
 ## Limitations
 
 - Demo customers come from the training data, so their scores and batch ROC-AUC are in-sample.
-- `/retrain` retrains on the same static file. In production that file would be refreshed with newly labeled customers first.
+- In the demo, the "newly labelled" customers come from `/demo/customers`, i.e. drifted copies of training rows. A real setup would send the CRM's latest outcomes.
 - The Telco drift scenarios are simulated. Real drift is only measured in the Online Retail backtest, which is an offline replay; the live API still serves the Telco model.
 - `mlflow.db` from the original experiments references Windows paths and a different project, so treat it as history. The serving model's metrics live in `models/churn_scoring/meta.json`.
+
+## Full deployment on Kubernetes
+
+The Helm chart (`deploy/helm/churn-platform/`) runs the API, dashboard, n8n (with the workflows imported and published on start) and pgvector Postgres, plus a ServiceMonitor and a Grafana dashboard. It was deployed on GKE together with the [doppelganger](https://github.com/agrimsharma/celebrity-doppelganger) project, which holds the Terraform and the one-command `up-gcp.sh` / `down-gcp.sh`. The 40k-complaint vector index was copied in cloud to cloud from Neon (`scripts/k8s_load_index.sh --from-url`).
+
+**The dashboard**
+
+| | |
+|---|---|
+| ![Churn scoring](docs/screenshots/dashboard-scoring.jpg) | ![Drift check](docs/screenshots/dashboard-drift.jpg) |
+| Calibrated churn probabilities with the top SHAP risk drivers per customer. | A simulated price hike and contract shift: 53% of model importance drifted, so retraining is recommended. |
+| ![Backtest](docs/screenshots/dashboard-backtest.jpg) | ![Workflow activity](docs/screenshots/dashboard-workflow-activity.jpg) |
+| The retraining backtest on real time-stamped retail data. | Everything the n8n workflows logged: call tasks, retention emails, a routed complaint and a model promotion. |
+
+**The n8n workflows, running**
+
+| | |
+|---|---|
+| ![Retention workflow](docs/screenshots/n8n-retention.jpg) | ![Drift and retrain workflow](docs/screenshots/n8n-drift-retrain.jpg) |
+| Daily retention scoring: 50 customers scored, 5 call tasks, 11 retention emails. | Weekly drift check: drift found → retrain → promotion gate → logged. |
+
+![A complaint posted to the n8n webhook: classified, matched with similar past cases, answered by Claude and routed as urgent](docs/screenshots/n8n-complaint-webhook.jpg)
+
+A complaint posted to the webhook comes back routed to `credit-bureau-disputes` as **urgent**, with the 3 most similar past cases (0.84–0.86 similarity), a live Claude reply that cites exactly those cases, and the reason for escalation (identity theft).
+
+**API and monitoring**
+
+| | |
+|---|---|
+| ![API docs](docs/screenshots/api-docs.jpg) | ![Grafana](docs/screenshots/grafana.jpg) |
+| FastAPI's OpenAPI docs. | Grafana: request rate and p95 latency by route, customers scored, the calibrated probability distribution, drift mass, Claude drafts and tokens, and memory. |
+
+The chart ships values for a local kind cluster, AKS and GKE (`values-*.yaml`). Free hosting: [deploy/FREE_TIER.md](deploy/FREE_TIER.md).
 
 ## Layout
 
@@ -183,8 +220,10 @@ Slack steps are skipped when `SLACK_WEBHOOK_URL` is empty. To connect a real CRM
 service/          FastAPI app, churn model + calibration, PSI drift, complaints classifier, RAG (pgvector + Claude), Dockerfile
 n8n/              workflow generator + importable workflows
 dashboard/        Streamlit ops dashboard
+deploy/           Helm chart (API, dashboard, n8n, pgvector, monitoring) + free-tier Modal app
 tests/            API tests (pytest)
 scripts/          training, original Evidently drift demo, text-leakage investigation, MLflow logging
 notebooks/        GPU fine-tuning notebook (Vast.ai)
-reports/          drift summary (simulated scenario)
+reports/          backtest, RAG evaluation, example drafts, drift summary
+docs/screenshots/ the full deployment, captured on GKE
 ```

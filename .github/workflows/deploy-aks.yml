@@ -21,8 +21,8 @@ jobs:
     if: vars.AKS_NAME != ''
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/login@v2
+      - uses: actions/checkout@v7
+      - uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -32,8 +32,8 @@ jobs:
           TAG=${GITHUB_SHA::12}
           az acr build -r "${{ vars.ACR_NAME }}" -t "churn-api:$TAG" -f service/Dockerfile --build-arg WITH_NLP=true . --no-logs -o none
           az acr build -r "${{ vars.ACR_NAME }}" -t "churn-dashboard:$TAG" -f dashboard/Dockerfile . --no-logs -o none
-      - uses: azure/setup-helm@v4
-      - uses: azure/setup-kubectl@v4
+      - uses: azure/setup-helm@v5
+      - uses: azure/setup-kubectl@v5
       - name: Roll out
         run: |
           TAG=${GITHUB_SHA::12}
