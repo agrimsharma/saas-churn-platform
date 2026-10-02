@@ -39,6 +39,12 @@ DRIFT_MASS = Gauge("churn_drift_importance_mass", "Share of model importance on 
 RETRAIN_RECOMMENDED = Gauge("churn_retrain_recommended", "1 if the last drift check recommended a retrain")
 DRAFTS = Counter("churn_reply_drafts_total", "Claude reply drafts", ["escalate"])
 DRAFT_TOKENS = Counter("churn_reply_draft_tokens_total", "Claude tokens used for drafts", ["kind"])
+# export every labelled series at 0 from startup: Prometheus' increase() can't see the first
+# increment of a series that only appears once it's already at 1, so the first draft would read 0
+for _label in ("true", "false"):
+    DRAFTS.labels(_label)
+for _label in ("input", "output"):
+    DRAFT_TOKENS.labels(_label)
 
 _state: Dict[str, Any] = {"model": None}
 _lock = threading.Lock()
