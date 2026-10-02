@@ -22,8 +22,8 @@ jobs:
       # the public IBM Telco dataset has the same columns the model uses
       CHURN_DATA_PATH: data/raw/Telco-Customer-Churn.csv
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -43,7 +43,7 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cp .env.example .env
       - run: docker compose config --quiet
       - run: docker compose build api dashboard
@@ -51,8 +51,8 @@ jobs:
   helm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
       - name: lint + render + schema check (kind and AKS values)
         run: |
           CHART=deploy/helm/churn-platform
