@@ -237,7 +237,7 @@ const text = [
     `${(d.drifted_importance_mass * 100).toFixed(0)}% of model importance (threshold ${(d.importance_drift_threshold * 100).toFixed(0)}%).`,
   d.roc_auc_drop === null ? 'No labels supplied - performance check skipped.'
     : `ROC-AUC drop ${d.roc_auc_drop.toFixed(3)} (threshold ${d.roc_auc_drop_threshold}).`,
-  `CV ROC-AUC: ${r.previous_cv_roc_auc.toFixed(4)} → ${r.candidate_cv_roc_auc.toFixed(4)}`,
+  `Retrained with ${r.new_labeled_rows} newly labeled customers. CV ROC-AUC: ${r.previous_cv_roc_auc.toFixed(4)} → ${r.candidate_cv_roc_auc.toFixed(4)}`,
 ].join('\n');
 return [{ json: { text, promoted: r.promoted, previous_cv_roc_auc: r.previous_cv_roc_auc, candidate_cv_roc_auc: r.candidate_cv_roc_auc } }];
 """
@@ -248,12 +248,16 @@ iff = node("Retrain recommended?", "if", 2, [960, 300],
 nodes = [
     schedule("Every Monday 07:00", [240, 200], "0 7 * * 1"),
     manual([240, 400]),
-    # swap for a real CRM export; scenario=both injects the simulated price hike + contract shift
-    http("Pull current customers", [480, 300], "/demo/customers?n=1000&scenario=both"),
+    # swap for a real CRM export with last period's outcomes; scenario=both injects the simulated
+    # price hike + contract shift
+    http("Pull current customers", [480, 300], "/demo/customers?n=1000&scenario=both&include_labels=true"),
     http("Check drift", [720, 300], "/drift/check", method="POST",
-         body="={{ JSON.stringify({ customers: $json.customers }) }}"),
+         body="={{ JSON.stringify({ customers: $json.customers, churned: $json.churned }) }}"),
     iff,
-    http("Retrain model", [1200, 200], "/retrain", method="POST", options={"timeout": 300000}),
+    # retrain on the base data + the drifted, now-labeled batch
+    http("Retrain model", [1200, 200], "/retrain", method="POST", options={"timeout": 300000},
+         body="={{ JSON.stringify({ customers: $('Pull current customers').first().json.customers, "
+              "churned: $('Pull current customers').first().json.churned }) }}"),
     code("Summarize retrain", [1440, 200], RETRAIN_MSG_JS),
     http("Log retrain", [1680, 100], "/actions", method="POST",
          body="={{ JSON.stringify({ action: $json.promoted ? 'model_promoted' : 'model_rejected', "

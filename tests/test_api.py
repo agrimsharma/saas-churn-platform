@@ -99,6 +99,14 @@ def test_retrain_promotion_gate(client, monkeypatch):
     assert client.post("/retrain").json()["promoted"] is True
 
 
+def test_retrain_learns_from_new_labeled_rows(client):
+    d = demo(client, n=300, seed=7, scenario="both", include_labels="true")
+    r = client.post("/retrain", json={"customers": d["customers"], "churned": d["churned"]}).json()
+    assert r["new_labeled_rows"] == 300
+    assert r["candidate_cv_roc_auc"] != r["previous_cv_roc_auc"]
+    assert client.post("/retrain", json={"customers": d["customers"], "churned": d["churned"][:5]}).status_code == 422
+
+
 def test_actions_roundtrip(client):
     client.post("/actions", json={"customer_id": "c1", "action": "retention_call", "details": {"x": 1}})
     latest = client.get("/actions", params={"limit": 1}).json()["actions"][0]
