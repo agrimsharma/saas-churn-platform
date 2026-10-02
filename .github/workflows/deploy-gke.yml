@@ -1,0 +1,54 @@
+name: Deploy to GKE
+
+# CD for the recording-session cluster. Inert unless the cluster exists: infra/session/up-gcp.sh
+# sets the repo variables below, down-gcp.sh removes them. Authenticates with Workload Identity
+# Federation - no service-account key is stored anywhere.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["service/**", "dashboard/**", "n8n/**", "deploy/helm/**", "requirements-*.txt"]
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-gke
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.GKE_CLUSTER != ''
+    runs-on: ubuntu-latest
+    env:
+      REG: ${{ vars.GAR_REGISTRY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build images (Cloud Build, amd64)
+        run: |
+          TAG=${GITHUB_SHA::12}
+          build() {  # build <context> <dockerfile> <image> [extra docker args]
+            printf 'steps:\n  - name: gcr.io/cloud-builders/docker\n    args: ["build", "-t", "%s", "-f", "%s"%s, "."]\nimages: ["%s"]\noptions: {logging: CLOUD_LOGGING_ONLY, machineType: E2_HIGHCPU_8}\ntimeout: 1800s\n' \
+              "$REG/$3:$TAG" "$2" "${4:+, $4}" "$REG/$3:$TAG" > /tmp/cb-$3.yaml
+            gcloud builds submit "$1" --config /tmp/cb-$3.yaml --region "${{ vars.GCP_REGION }}" \
+              --service-account "projects/${{ vars.GCP_PROJECT }}/serviceAccounts/${{ vars.GCP_BUILD_SA }}" --quiet
+          }
+          build . service/Dockerfile churn-api "\"--build-arg\", \"WITH_NLP=true\""
+          build . dashboard/Dockerfile churn-dashboard
+      - uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_ZONE }}
+      - uses: azure/setup-helm@v4
+      - name: Roll out
+        run: |
+          TAG=${GITHUB_SHA::12}
+          helm upgrade churn deploy/helm/churn-platform -n churn --reuse-values --set api.image.tag=$TAG --set dashboard.image.tag=$TAG --wait --timeout 15m
+          kubectl -n churn rollout status deploy/churn-api --timeout=10m
+          kubectl -n churn rollout status deploy/churn-dashboard --timeout=5m
