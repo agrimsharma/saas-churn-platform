@@ -15,7 +15,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import joblib
 import sklearn
@@ -98,9 +98,19 @@ def feature_importances(pipeline: Pipeline) -> Dict[str, float]:
     return (per_col / per_col.sum()).round(6).to_dict()
 
 
-def train() -> Dict:
-    """Evaluate on a held-out split + 5-fold CV, then refit on all rows for serving."""
+def train(recent: Optional[Tuple[pd.DataFrame, pd.Series]] = None) -> Dict:
+    """Evaluate on a held-out split + 5-fold CV, then refit on all rows for serving.
+
+    recent: newly labeled customers (features, churned) appended to the base data, so a retrain
+    triggered by drift actually learns the shifted distribution.
+    """
     X, y = load_training_data()
+    n_recent = 0
+    if recent is not None:
+        X_new, y_new = clean(recent[0]), pd.Series(recent[1]).astype(int)
+        n_recent = len(X_new)
+        X = pd.concat([X, X_new], ignore_index=True)
+        y = pd.concat([y, y_new], ignore_index=True)
 
     # held-out evaluation, including whether calibration actually helps on unseen rows
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
@@ -123,6 +133,7 @@ def train() -> Dict:
         "trained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "data_path": DATA_PATH.name,
         "n_rows": int(len(X)),
+        "n_recent_rows": n_recent,
         "churn_rate": float(y.mean()),
         "holdout_metrics": {
             # decision metrics use the raw class-weighted model's 0.5 cut (recall-oriented)

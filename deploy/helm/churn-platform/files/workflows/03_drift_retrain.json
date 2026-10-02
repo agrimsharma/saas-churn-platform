@@ -36,7 +36,7 @@
     },
     {
       "parameters": {
-        "url": "={{ $env.CHURN_API_URL }}/demo/customers?n=1000&scenario=both",
+        "url": "={{ $env.CHURN_API_URL }}/demo/customers?n=1000&scenario=both&include_labels=true",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -72,7 +72,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ customers: $json.customers }) }}",
+        "jsonBody": "={{ JSON.stringify({ customers: $json.customers, churned: $json.churned }) }}",
         "options": {}
       },
       "id": "d0cd0fbb-0f8d-5caa-ba2c-db2908be88b1",
@@ -130,6 +130,9 @@
             }
           ]
         },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ customers: $('Pull current customers').first().json.customers, churned: $('Pull current customers').first().json.churned }) }}",
         "options": {
           "timeout": 300000
         }
@@ -145,7 +148,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const d = $('Check drift').first().json;\nconst r = $input.first().json;\nconst verdict = r.promoted ? 'new model promoted' : 'candidate REJECTED (CV ROC-AUC regressed) - old model kept';\nconst text = [\n  `*Drift check: retrain triggered* - ${verdict}.`,\n  `Drifted features: ${d.drifted_features.join(', ')} - ` +\n    `${(d.drifted_importance_mass * 100).toFixed(0)}% of model importance (threshold ${(d.importance_drift_threshold * 100).toFixed(0)}%).`,\n  d.roc_auc_drop === null ? 'No labels supplied - performance check skipped.'\n    : `ROC-AUC drop ${d.roc_auc_drop.toFixed(3)} (threshold ${d.roc_auc_drop_threshold}).`,\n  `CV ROC-AUC: ${r.previous_cv_roc_auc.toFixed(4)} \u2192 ${r.candidate_cv_roc_auc.toFixed(4)}`,\n].join('\\n');\nreturn [{ json: { text, promoted: r.promoted, previous_cv_roc_auc: r.previous_cv_roc_auc, candidate_cv_roc_auc: r.candidate_cv_roc_auc } }];"
+        "jsCode": "const d = $('Check drift').first().json;\nconst r = $input.first().json;\nconst verdict = r.promoted ? 'new model promoted' : 'candidate REJECTED (CV ROC-AUC regressed) - old model kept';\nconst text = [\n  `*Drift check: retrain triggered* - ${verdict}.`,\n  `Drifted features: ${d.drifted_features.join(', ')} - ` +\n    `${(d.drifted_importance_mass * 100).toFixed(0)}% of model importance (threshold ${(d.importance_drift_threshold * 100).toFixed(0)}%).`,\n  d.roc_auc_drop === null ? 'No labels supplied - performance check skipped.'\n    : `ROC-AUC drop ${d.roc_auc_drop.toFixed(3)} (threshold ${d.roc_auc_drop_threshold}).`,\n  `Retrained with ${r.new_labeled_rows} newly labeled customers. CV ROC-AUC: ${r.previous_cv_roc_auc.toFixed(4)} \u2192 ${r.candidate_cv_roc_auc.toFixed(4)}`,\n].join('\\n');\nreturn [{ json: { text, promoted: r.promoted, previous_cv_roc_auc: r.previous_cv_roc_auc, candidate_cv_roc_auc: r.candidate_cv_roc_auc } }];"
       },
       "id": "17b7c4b3-ab48-51bc-92ad-854447fa7219",
       "name": "Summarize retrain",

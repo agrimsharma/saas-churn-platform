@@ -113,6 +113,13 @@ class ScoreRequest(BaseModel):
     customers: List[Customer] = Field(..., min_length=1, max_length=5000)
 
 
+class RetrainRequest(BaseModel):
+    # newly labeled customers (e.g. the drifted batch once outcomes are known), added to the
+    # training data; omit to retrain on the base data only
+    customers: List[Customer] = Field(..., min_length=1, max_length=50000)
+    churned: List[bool]
+
+
 class DriftCheckRequest(BaseModel):
     customers: List[Customer] = Field(..., min_length=drift.MIN_BATCH, max_length=50000)
     # optional outcomes for these customers (e.g. from a later billing export) - enables the
@@ -237,11 +244,14 @@ def drift_report():
 
 
 @app.post("/retrain", dependencies=[Depends(require_key), Depends(not_in_public_demo)])
-async def retrain():
-    """Retrain on the current data file; promote only if CV ROC-AUC holds up."""
-    # NOTE: retrains on CHURN_DATA_PATH. In production that file would be refreshed with
-    # newly labeled customers before this is called; here it's the static Telco export.
-    candidate = await run_in_threadpool(churn_model.train)
+async def retrain(req: Optional[RetrainRequest] = None):
+    """Retrain on the base data plus any newly labeled customers; promote only if CV ROC-AUC holds up."""
+    recent = None
+    if req is not None:
+        if len(req.churned) != len(req.customers):
+            raise HTTPException(status_code=422, detail="churned must have one entry per customer")
+        recent = (pd.DataFrame([c.model_dump() for c in req.customers]), req.churned)
+    candidate = await run_in_threadpool(churn_model.train, recent)
     old_auc = _state["model"]["meta"].get("cv_roc_auc_mean", 0.0)
     new_auc = candidate["meta"]["cv_roc_auc_mean"]
     promoted = new_auc >= old_auc - PROMOTION_TOLERANCE
@@ -253,6 +263,7 @@ async def retrain():
         "promoted": promoted,
         "previous_cv_roc_auc": old_auc,
         "candidate_cv_roc_auc": new_auc,
+        "new_labeled_rows": candidate["meta"]["n_recent_rows"],
         "candidate_holdout_metrics": candidate["meta"]["holdout_metrics"],
     }
 
