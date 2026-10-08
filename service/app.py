@@ -374,9 +374,11 @@ def agent_ask(req: AgentQuestion):
     try:
         result = agent.ask(req.question)
     except agent.AgentUnavailable as e:
+        agent.release_slot()
         AGENT_QUESTIONS.labels("unavailable").inc()
         raise HTTPException(status_code=503, detail=str(e))
     except Exception:
+        agent.release_slot()
         AGENT_QUESTIONS.labels("error").inc()
         raise
     AGENT_QUESTIONS.labels("answered").inc()

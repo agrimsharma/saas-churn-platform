@@ -103,6 +103,22 @@ def take_slot(require_db: bool = False) -> int:
     return DAILY_LIMIT - row[0]
 
 
+def release_slot() -> None:
+    """Give a reserved question back - the call failed before Claude answered (bad key,
+    rate limit), so the visitor shouldn't lose part of today's budget."""
+    if DAILY_LIMIT <= 0:
+        return
+    conn = _db()
+    if conn is None:
+        with _memory_lock:
+            key = str(date.today())
+            _memory_usage[key] = max(_memory_usage.get(key, 0) - 1, 0)
+        return
+    with conn:
+        conn.execute("UPDATE agent_usage SET questions = questions - 1 "
+                     "WHERE day = CURRENT_DATE AND questions > 0")
+
+
 # ---------------------------------------------------------------- the agent loop
 def tool_definitions() -> List[Dict]:
     """Claude tool schemas, generated from the tool functions' signatures and docstrings."""

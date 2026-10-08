@@ -138,6 +138,16 @@ def test_daily_budget_is_enforced(endpoint, monkeypatch):
     assert endpoint.get("/agent/status").json()["remaining_today"] == 0
 
 
+def test_failed_questions_give_their_slot_back(endpoint, monkeypatch):
+    monkeypatch.setattr(agent, "DAILY_LIMIT", 2)
+
+    def unavailable(q):
+        raise agent.AgentUnavailable("invalid Anthropic API key")
+    monkeypatch.setattr(agent, "ask", unavailable)
+    assert endpoint.post("/agent/ask", json={"question": "hi there"}).status_code == 503
+    assert endpoint.get("/agent/status").json()["remaining_today"] == 2
+
+
 def test_public_demo_needs_a_budget_and_a_database(endpoint, monkeypatch):
     monkeypatch.setattr(app_module, "PUBLIC_DEMO", True)
     monkeypatch.setattr(agent, "DAILY_LIMIT", 0)
