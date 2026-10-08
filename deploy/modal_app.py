@@ -5,8 +5,9 @@ One container runs the API (localhost only) and the Streamlit dashboard (public)
 the first visit, stays warm SCALEDOWN_S seconds after the last one, then scales to zero. The
 image does the slow work at build time: Telco data, both language models and a pre-trained churn
 model are baked in, so a cold start only loads them. PUBLIC_DEMO disables everything that changes
-state, and Claude reply drafting; the Claude agent runs under a daily question budget
-(AGENT_DAILY_LIMIT, counted in Neon so it survives restarts).
+state, and Claude reply drafting. The Claude agent runs behind guardrails (service/guardrails.py):
+dollar and question budgets plus per-visitor limits, counted in Neon so they survive restarts,
+and a scope check that refuses off-topic, prompt-injection and harmful questions.
 
 One-time setup (see deploy/FREE_TIER.md):
   python scripts/publish_hf.py                                   # classifier -> HF Hub (free)
@@ -23,8 +24,15 @@ import modal
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 APP = "/root/app"
 SCALEDOWN_S = 300
-AGENT_DAILY_LIMIT = "20"             # agent questions per UTC day, across all visitors
 AGENT_MODEL = "claude-sonnet-5-5"   # ~$0.02 per question, measured
+AGENT_LIMITS = {                    # the public agent's guardrails; days are UTC
+    "AGENT_DAILY_LIMIT": "20",            # questions per day, all visitors together
+    "AGENT_DAILY_BUDGET_USD": "0.50",
+    "AGENT_MONTHLY_BUDGET_USD": "5.00",
+    "AGENT_MAX_USD_PER_QUESTION": "0.05",  # also what each question reserves up front
+    "AGENT_VISITOR_PER_HOUR": "5",
+    "AGENT_VISITOR_PER_DAY": "10",
+}
 COMPLAINTS_MODEL = os.environ.get("COMPLAINTS_MODEL_REPO", "agrim-sharma/cfpb-complaints-distilbert")
 TELCO_URL = "https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv"
 REPORTS = ["example_drafts.json", "demo_actions.jsonl", "retail_backtest.json",
@@ -46,8 +54,8 @@ image = (
         "CHURN_DATA_PATH": f"{APP}/data/raw/Telco-Customer-Churn.csv",
         "CHURN_API_URL": "http://127.0.0.1:8000",
         "REPORTS_DIR": f"{APP}/reports",
-        "AGENT_DAILY_LIMIT": AGENT_DAILY_LIMIT,
         "CLAUDE_AGENT_MODEL": AGENT_MODEL,
+        **AGENT_LIMITS,
     })
     .run_commands(f"mkdir -p {APP}/data/raw && curl -fsSL -o {APP}/data/raw/Telco-Customer-Churn.csv {TELCO_URL}")
     # pre-download the embedding model and the fine-tuned classifier into the image

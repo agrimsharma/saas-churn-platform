@@ -18,7 +18,7 @@ from fastapi.concurrency import run_in_threadpool
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from pydantic import BaseModel, Field
 
-from service import agent, churn_model, complaints, drift, rag
+from service import agent, churn_model, complaints, drift, guardrails, rag
 
 ROOT = Path(__file__).resolve().parents[1]
 DRIFT_SUMMARY_PATH = ROOT / "reports" / "drift_summary.json"
@@ -49,7 +49,8 @@ for _label in ("input", "output"):
 AGENT_QUESTIONS = Counter("churn_agent_questions_total", "Questions to the Claude agent", ["outcome"])
 AGENT_TOOL_CALLS = Counter("churn_agent_tool_calls_total", "Tool calls made by the Claude agent", ["tool"])
 AGENT_TOKENS = Counter("churn_agent_tokens_total", "Claude tokens used by the agent", ["kind"])
-for _label in ("answered", "budget_exhausted", "unavailable", "error"):
+AGENT_SPEND = Counter("churn_agent_spend_usd_total", "Claude spend by the agent, incl. scope checks (USD)")
+for _label in ("answered", "blocked", "limited", "unavailable", "error"):
     AGENT_QUESTIONS.labels(_label)
 for _fn in agent.agent_tools.TOOLS:
     AGENT_TOOL_CALLS.labels(_fn.__name__)
@@ -339,52 +340,80 @@ def list_actions(limit: int = Query(50, ge=1, le=1000)):
     return {"actions": [json.loads(line) for line in reversed(lines)]}
 
 
+def _visitor(request: Request, x_visitor_id: Optional[str]) -> str:
+    # the dashboard forwards the visitor's address (the API itself is private on the free demo);
+    # direct API callers are identified by their own address
+    return guardrails.visitor_id(x_visitor_id or (request.client.host if request.client else None))
+
+
+def _agent_enabled() -> bool:
+    # the public demo only runs the agent with limits configured
+    return rag.drafting_configured() and (not PUBLIC_DEMO or guardrails.LIMITS.any())
+
+
 @app.get("/agent/status", dependencies=[Depends(require_key)])
-def agent_status():
-    configured = rag.drafting_configured() and (not PUBLIC_DEMO or agent.DAILY_LIMIT > 0)
-    used = agent.used_today() if agent.DAILY_LIMIT > 0 else None
+def agent_status(request: Request, x_visitor_id: Optional[str] = Header(default=None)):
     return {
-        "configured": configured,
+        "configured": _agent_enabled(),
         "model": agent.AGENT_MODEL,
         "tools": [fn.__name__ for fn in agent.agent_tools.TOOLS],
-        "daily_limit": agent.DAILY_LIMIT or None,
-        "used_today": used,
-        "remaining_today": None if used is None else max(agent.DAILY_LIMIT - used, 0),
+        "scope_check": guardrails.SCOPE_CHECK,
+        **guardrails.status(_visitor(request, x_visitor_id)),
     }
 
 
 @app.post("/agent/ask", dependencies=[Depends(require_key)])
-def agent_ask(req: AgentQuestion):
+def agent_ask(req: AgentQuestion, request: Request, x_visitor_id: Optional[str] = Header(default=None)):
     """Answer a question with the Claude agent, which calls the platform's read-only tools.
-    In the public demo it runs only with a daily question budget (AGENT_DAILY_LIMIT)."""
-    if PUBLIC_DEMO and agent.DAILY_LIMIT <= 0:
+    Guardrails first (service/guardrails.py): usage and spending limits, then a scope check that
+    refuses off-topic, prompt-injection and harmful questions before the agent runs."""
+    import anthropic
+
+    if PUBLIC_DEMO and not guardrails.LIMITS.any():
         raise HTTPException(status_code=403, detail="the agent is disabled in the public demo")
     if not rag.drafting_configured():
         AGENT_QUESTIONS.labels("unavailable").inc()
         raise HTTPException(status_code=503, detail="the agent is disabled: set ANTHROPIC_API_KEY")
+    question = req.question.strip()
     try:
-        remaining = agent.take_slot(require_db=PUBLIC_DEMO)
-    except agent.BudgetExhausted:
-        AGENT_QUESTIONS.labels("budget_exhausted").inc()
-        raise HTTPException(status_code=429, detail=f"today's {agent.DAILY_LIMIT}-question budget is used up "
-                                                    "- it resets at midnight UTC")
-    except agent.AgentUnavailable as e:
-        AGENT_QUESTIONS.labels("unavailable").inc()
-        raise HTTPException(status_code=503, detail=str(e))
+        event = guardrails.reserve(_visitor(request, x_visitor_id), question, require_db=PUBLIC_DEMO)
+    except guardrails.LimitReached as e:
+        AGENT_QUESTIONS.labels("limited").inc()
+        raise HTTPException(status_code=429, detail=str(e))
+
+    spent = 0.0
     try:
-        result = agent.ask(req.question)
-    except agent.AgentUnavailable as e:
-        agent.release_slot()
+        client = anthropic.Anthropic()
+        if guardrails.SCOPE_CHECK:
+            scope = guardrails.check_scope(question, client, agent.AGENT_MODEL)
+            spent += scope["usd"]
+            if scope["verdict"] != "on_topic":
+                guardrails.settle(event, f"blocked_{scope['verdict']}", spent)
+                AGENT_QUESTIONS.labels("blocked").inc()
+                AGENT_SPEND.inc(spent)
+                return {"question": question, "answer": guardrails.REFUSALS[scope["verdict"]], "blocked": True,
+                        "steps": [], "usage": {"input_tokens": 0, "output_tokens": 0, "model_calls": 0,
+                                               "usd": round(spent, 5)},
+                        "model": agent.AGENT_MODEL, "seconds": 0}
+        result = agent.ask(question, client=client, max_usd=guardrails.LIMITS.usd_per_question)
+    except (agent.AgentUnavailable, anthropic.AuthenticationError, anthropic.RateLimitError,
+            anthropic.APIConnectionError) as e:
+        guardrails.settle(event, "failed" if not spent else "error", spent)
         AGENT_QUESTIONS.labels("unavailable").inc()
-        raise HTTPException(status_code=503, detail=str(e))
+        detail = str(e) if isinstance(e, agent.AgentUnavailable) else "the Claude API is unavailable - try again later"
+        raise HTTPException(status_code=503, detail=detail)
     except Exception:
-        agent.release_slot()
+        guardrails.settle(event, "failed" if not spent else "error", spent)
         AGENT_QUESTIONS.labels("error").inc()
         raise
+    spent += result["usage"]["usd"]
+    result["usage"]["usd"] = round(spent, 5)
+    guardrails.settle(event, "answered", spent)
     AGENT_QUESTIONS.labels("answered").inc()
+    AGENT_SPEND.inc(spent)
     for step in result["steps"]:
         AGENT_TOOL_CALLS.labels(step["tool"]).inc()
     AGENT_TOKENS.labels("input").inc(result["usage"]["input_tokens"])
     AGENT_TOKENS.labels("output").inc(result["usage"]["output_tokens"])
-    result["remaining_today"] = None if remaining < 0 else remaining
+    result["blocked"] = False
     return result

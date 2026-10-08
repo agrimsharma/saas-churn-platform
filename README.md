@@ -169,11 +169,19 @@ How to read this:
 - **The tools are thin API clients.** They reuse the API's auth, validation and metrics, and the MCP server needs no ML dependencies.
 - **Everything is read-only.** No tool can log actions, retrain or call Claude.
 - **Errors go back to Claude, not to the user.** A bad customer ID or an unavailable index comes back as an `is_error` tool result, so Claude can explain or try something else.
-- **Safety and cost:**
-  - **Budget:** a daily question budget (`AGENT_DAILY_LIMIT`) is counted atomically in Postgres, so it holds across restarts and containers.
-  - **Limits:** questions are capped at 500 characters and 6 model calls.
-  - **Refusals:** a server-side fallback handles policy refusals.
-  - **Metrics:** Prometheus counts questions, tool calls and tokens (`churn_agent_*`).
+- **Guardrails** (`service/guardrails.py`), cheapest first, so misuse costs as little as possible:
+  1. **Limits before anything is spent.** These are dollar budgets per day and per month, a daily question cap, and per-visitor limits per hour and per day.
+     - **Storage:** all of them are counted in Postgres, so restarts don't reset them.
+     - **No races:** an advisory lock stops concurrent requests from slipping under a limit together.
+     - **Reservations:** each question *reserves* its worst-case cost up front and settles the real cost afterwards, so a budget is never overshot. A failed question gives its reservation back.
+  2. **Scope check.** One low-effort model call (about $0.002) classifies the question as on-topic, off-topic, prompt injection or harmful. Only on-topic questions reach the agent, which stops the demo being used as a free general-purpose chatbot. If the check can't decide, the question is refused (fail closed).
+  3. **Inside the agent:**
+     - read-only tools;
+     - 500-character questions, at most 6 model calls and 3,000 output tokens per call;
+     - a per-question dollar ceiling, checked after every call;
+     - a system prompt that keeps it on scope, never reveals its instructions, and treats tool results as **data, not instructions**. Complaint narratives are written by the public, which makes them a prompt-injection route.
+  4. **Audit and metrics.** Every question is logged with its outcome, cost and a hashed visitor ID. The salt is a random secret kept in the database, so hashed IPs can't be reversed. Prometheus counts questions by outcome, tool calls, tokens and dollars (`churn_agent_*`).
+  - **Public demo limits:** $0.05 per question, $0.50 a day, $5 a month, 20 questions a day, and 5 an hour or 10 a day per visitor. It also uses an API key from a separate Anthropic workspace with its own spend limit. All limits are off by default locally.
 - **Example:** *"Which 5 month-to-month customers are most likely to churn, and what offer would you make each?"* took 1 tool call, 2 model calls and about 5.5k input / 1.2k output tokens in 14 s, roughly $0.05 on `claude-opus-5-5` (the default). The public demo runs `claude-sonnet-5-5`, at about $0.02 per question.
 
 **Use the tools from Claude Desktop or Claude Code (MCP):** with the API running (`docker compose up -d`, so `http://localhost:8000`):

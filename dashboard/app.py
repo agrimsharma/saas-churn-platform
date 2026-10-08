@@ -65,37 +65,51 @@ EXAMPLE_QUESTIONS = [
     "What category is that, and how were similar complaints resolved?",
     "Why is customer 7590-VHVEG at risk, and what has the platform already done about them?",
 ]
-SESSION_LIMIT = 5  # per browser session, on top of the API's daily budget
+
+
+def visitor_headers():
+    """Who's asking, for the API's per-visitor limits: the client address from the proxy header
+    (or Streamlit's own view of it), else this browser session. The API only stores a hash."""
+    ip = None
+    try:
+        ip = (st.context.headers.get("X-Forwarded-For") or "").split(",")[0].strip() or st.context.ip_address
+    except Exception:
+        pass
+    if not ip:
+        import uuid
+        ip = st.session_state.setdefault("visitor_session", uuid.uuid4().hex)
+    return {**HEADERS, "X-Visitor-Id": ip}
 
 with tab_agent:
     st.write("Ask a question in plain English. Claude answers by **calling the platform's tools** - scoring "
              "customers, checking drift, searching past complaints, reading the workflow log - and shows each "
              "step. The same tools are available to Claude Desktop and Claude Code through the repo's **MCP server**.")
     try:
-        status = api("GET", "/agent/status")
-    except requests.RequestException:
+        status = requests.get(f"{API}/agent/status", headers=visitor_headers(), timeout=30).json()
+    except (requests.RequestException, ValueError):
         status = {"configured": False}
     if not status.get("configured"):
         st.info("The agent isn't enabled here (no Anthropic API key). It runs locally and in the full deployment.")
     else:
-        asked = st.session_state.setdefault("agent_asked", 0)
-        remaining = status.get("remaining_today")
-        budget = (f"{remaining} of {status['daily_limit']} questions left today (resets at midnight UTC). "
-                  if remaining is not None else "")
-        st.caption(f"{budget}Model: `{status['model']}` · tools: " + ", ".join(f"`{t}`" for t in status["tools"]))
+        left_today, left_you = status.get("remaining_today"), status.get("remaining_for_you")
+        budget = " · ".join(x for x in (
+            f"{left_today} questions left today" if left_today is not None else "",
+            f"{left_you} left for you" if left_you is not None else "") if x)
+        st.caption((f"{budget} · " if budget else "") + f"Model: `{status['model']}` · tools: "
+                   + ", ".join(f"`{t}`" for t in status["tools"]))
+        if status.get("scope_check"):
+            st.caption("Questions are screened first, so only questions about this platform are answered, and "
+                       "are logged with a hashed visitor ID to prevent misuse.")
         choice = st.selectbox("Try an example, or write your own below", [""] + EXAMPLE_QUESTIONS)
         question = st.text_area("Question", value=choice, max_chars=500, height=90)
-        blocked = asked >= SESSION_LIMIT or remaining == 0
-        if asked >= SESSION_LIMIT:
-            st.warning(f"That's {SESSION_LIMIT} questions this session - thanks for trying it!")
-        if st.button("Ask", type="primary", disabled=blocked or len(question.strip()) < 3):
+        out_of_budget = left_today == 0 or left_you == 0
+        if st.button("Ask", type="primary", disabled=out_of_budget or len(question.strip()) < 3):
             with st.spinner("Claude is working through the tools..."):
                 try:
-                    r = requests.post(f"{API}/agent/ask", headers=HEADERS, json={"question": question.strip()},
-                                      timeout=300)
+                    r = requests.post(f"{API}/agent/ask", headers=visitor_headers(),
+                                      json={"question": question.strip()}, timeout=300)
                     r.raise_for_status()
                     st.session_state["agent_result"] = r.json()
-                    st.session_state["agent_asked"] = asked + 1
                     st.rerun()  # refresh the remaining-questions count
                 except requests.HTTPError as e:
                     detail = e.response.json().get("detail", str(e)) if e.response is not None else str(e)
@@ -104,10 +118,13 @@ with tab_agent:
                 except requests.RequestException as e:
                     st.error(f"The agent didn't answer: {e}")
         result = st.session_state.get("agent_result")
-        if result:
+        if result and result.get("blocked"):
+            st.warning(result["answer"])
+        elif result:
             st.markdown(result["answer"])
             st.caption(f"{len(result['steps'])} tool call(s) · {result['usage']['model_calls']} model call(s) · "
                        f"{result['usage']['input_tokens']:,} in / {result['usage']['output_tokens']:,} out tokens · "
+                       f"${result['usage'].get('usd', 0):.3f} · "
                        f"{result['seconds']} s · {result['model']}")
             for i, step in enumerate(result["steps"], 1):
                 with st.expander(f"{'⚠️' if step['is_error'] else '🔧'} Step {i}: `{step['tool']}` "
