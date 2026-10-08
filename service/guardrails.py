@@ -209,10 +209,11 @@ def status(visitor: str, limits: Limits = LIMITS) -> Dict:
     left = []
     if limits.questions_per_day:
         left.append(limits.questions_per_day - u["questions_today"])
+    # how many more worst-case reservations fit; rounded first because 0.50 / 0.05 is 9.999... in floats
     if limits.usd_per_day and limits.usd_per_question:
-        left.append((limits.usd_per_day - u["usd_today"]) // limits.usd_per_question)
+        left.append(int(round((limits.usd_per_day - u["usd_today"]) / limits.usd_per_question, 6)))
     if limits.usd_per_month and limits.usd_per_question:
-        left.append((limits.usd_per_month - u["usd_month"]) // limits.usd_per_question)
+        left.append(int(round((limits.usd_per_month - u["usd_month"]) / limits.usd_per_question, 6)))
     visitor_left = []
     if limits.visitor_per_hour:
         visitor_left.append(limits.visitor_per_hour - u["visitor_hour"])

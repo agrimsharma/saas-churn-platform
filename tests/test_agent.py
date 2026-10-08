@@ -193,6 +193,11 @@ def test_daily_dollar_budget_reserves_the_worst_case(endpoint, monkeypatch):
     assert endpoint.get("/agent/status").json()["spent_today_usd"] == pytest.approx(0.06)
 
 
+def test_remaining_count_survives_float_division(endpoint, monkeypatch):
+    limits(monkeypatch, usd_per_day=0.50, usd_per_question=0.05)  # 0.50 / 0.05 = 9.999... in floats
+    assert endpoint.get("/agent/status").json()["remaining_today"] == 10
+
+
 def test_per_visitor_hourly_limit(endpoint, monkeypatch):
     limits(monkeypatch, visitor_per_hour=1)
     assert ask(endpoint, "alice").status_code == 200
