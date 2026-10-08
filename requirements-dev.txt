@@ -4,4 +4,6 @@ httpx>=0.27
 # RAG tests (fake embedder, real pgvector) - no torch needed
 psycopg[binary]>=3.2
 pgvector>=0.3
-anthropic>=0.70
+anthropic>=1.0
+# MCP server test
+mcp>=2.3

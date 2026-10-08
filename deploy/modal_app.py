@@ -4,12 +4,14 @@ Free public demo on Modal (Starter plan: $30/month of credit, no card on file).
 One container runs the API (localhost only) and the Streamlit dashboard (public). It starts on
 the first visit, stays warm SCALEDOWN_S seconds after the last one, then scales to zero. The
 image does the slow work at build time: Telco data, both language models and a pre-trained churn
-model are baked in, so a cold start only loads them. PUBLIC_DEMO disables everything billed per
-call (Claude) or that changes state.
+model are baked in, so a cold start only loads them. PUBLIC_DEMO disables everything that changes
+state, and Claude reply drafting; the Claude agent runs under a daily question budget
+(AGENT_DAILY_LIMIT, counted in Neon so it survives restarts).
 
 One-time setup (see deploy/FREE_TIER.md):
   python scripts/publish_hf.py                                   # classifier -> HF Hub (free)
   modal secret create churn-neon DATABASE_URL='postgresql://...' # Neon (pgvector) connection
+  ./scripts/setup_agent_secret.sh                                # Anthropic key for the agent
 Deploy:
   modal deploy deploy/modal_app.py      -> https://<workspace>--churn-platform.modal.run
 """
@@ -21,6 +23,8 @@ import modal
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 APP = "/root/app"
 SCALEDOWN_S = 300
+AGENT_DAILY_LIMIT = "20"             # agent questions per UTC day, across all visitors
+AGENT_MODEL = "claude-opus-5-5"
 COMPLAINTS_MODEL = os.environ.get("COMPLAINTS_MODEL_REPO", "agrim-sharma/cfpb-complaints-distilbert")
 TELCO_URL = "https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv"
 REPORTS = ["example_drafts.json", "demo_actions.jsonl", "retail_backtest.json",
@@ -42,6 +46,8 @@ image = (
         "CHURN_DATA_PATH": f"{APP}/data/raw/Telco-Customer-Churn.csv",
         "CHURN_API_URL": "http://127.0.0.1:8000",
         "REPORTS_DIR": f"{APP}/reports",
+        "AGENT_DAILY_LIMIT": AGENT_DAILY_LIMIT,
+        "CLAUDE_AGENT_MODEL": AGENT_MODEL,
     })
     .run_commands(f"mkdir -p {APP}/data/raw && curl -fsSL -o {APP}/data/raw/Telco-Customer-Churn.csv {TELCO_URL}")
     # pre-download the embedding model and the fine-tuned classifier into the image
@@ -63,7 +69,8 @@ image = image.workdir(APP).run_commands("python -c 'from service import churn_mo
 
 @app.function(
     image=image,
-    secrets=[modal.Secret.from_name("churn-neon")],  # DATABASE_URL for the complaint index
+    secrets=[modal.Secret.from_name("churn-neon"),       # DATABASE_URL: complaint index + agent budget
+             modal.Secret.from_name("churn-anthropic")],  # ANTHROPIC_API_KEY for the agent
     cpu=1.0,
     memory=4096,
     scaledown_window=SCALEDOWN_S,

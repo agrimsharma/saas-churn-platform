@@ -42,10 +42,10 @@ st.title("Churn platform")
 st.caption("Churn prediction with per-customer risk drivers, drift monitoring, and complaint triage with "
            f"retrieval-augmented drafting. [Source code]({REPO})")
 if PUBLIC:
-    st.info("**Free public demo.** Everything here runs live on free hosting. Two parts of the full platform run only "
-            "in the full deployment (see the repo's recordings): the **n8n workflows** that act on these predictions, "
-            "and **live Claude reply drafting**, which is billed per call. Real example drafts are shown in the "
-            "Complaint triage tab instead.")
+    st.info("**Free public demo.** Everything here runs live on free hosting, including the Claude agent in the "
+            "**Ask the platform** tab (with a small daily question budget). Two parts run only in the full deployment "
+            "(see the repo's screenshots): the **n8n workflows** that act on these predictions, and **live Claude "
+            "reply drafting** - real example drafts are shown in the Complaint triage tab instead.")
 
 m = health["churn_model"]
 c1, c2, c3 = st.columns(3)
@@ -53,8 +53,69 @@ c1.metric("Churn model 5-fold CV ROC-AUC", f"{m['cv_roc_auc_mean']:.3f}" if m["c
 c2.metric("Model trained", (m["trained_at"] or "-").replace("T", " ").rstrip("Z"))
 c3.metric("Reply drafting", "live" if health.get("reply_drafting_configured") else "examples only")
 
-tab_score, tab_complaints, tab_drift, tab_backtest, tab_actions = st.tabs(
-    ["Churn scoring", "Complaint triage (RAG)", "Drift check", "Is retraining worth it?", "Workflow activity"])
+tab_agent, tab_score, tab_complaints, tab_drift, tab_backtest, tab_actions = st.tabs(
+    ["Ask the platform (agent)", "Churn scoring", "Complaint triage (RAG)", "Drift check", "Is retraining worth it?",
+     "Workflow activity"])
+
+# --- the Claude agent ----------------------------------------------------------------------
+EXAMPLE_QUESTIONS = [
+    "Which 5 month-to-month customers are most likely to churn, and what offer would you make each?",
+    "Is the model healthy? What happens if prices go up 25% and long contracts shift to month-to-month?",
+    "A customer says a debt collector keeps calling about a medical bill insurance already paid. "
+    "What category is that, and how were similar complaints resolved?",
+    "Why is customer 7590-VHVEG at risk, and what has the platform already done about them?",
+]
+SESSION_LIMIT = 5  # per browser session, on top of the API's daily budget
+
+with tab_agent:
+    st.write("Ask a question in plain English. Claude answers by **calling the platform's tools** - scoring "
+             "customers, checking drift, searching past complaints, reading the workflow log - and shows each "
+             "step. The same tools are available to Claude Desktop and Claude Code through the repo's **MCP server**.")
+    try:
+        status = api("GET", "/agent/status")
+    except requests.RequestException:
+        status = {"configured": False}
+    if not status.get("configured"):
+        st.info("The agent isn't enabled here (no Anthropic API key). It runs locally and in the full deployment.")
+    else:
+        asked = st.session_state.setdefault("agent_asked", 0)
+        remaining = status.get("remaining_today")
+        budget = (f"{remaining} of {status['daily_limit']} questions left today (resets at midnight UTC). "
+                  if remaining is not None else "")
+        st.caption(f"{budget}Model: `{status['model']}` · tools: " + ", ".join(f"`{t}`" for t in status["tools"]))
+        choice = st.selectbox("Try an example, or write your own below", [""] + EXAMPLE_QUESTIONS)
+        question = st.text_area("Question", value=choice, max_chars=500, height=90)
+        blocked = asked >= SESSION_LIMIT or remaining == 0
+        if asked >= SESSION_LIMIT:
+            st.warning(f"That's {SESSION_LIMIT} questions this session - thanks for trying it!")
+        if st.button("Ask", type="primary", disabled=blocked or len(question.strip()) < 3):
+            with st.spinner("Claude is working through the tools..."):
+                try:
+                    r = requests.post(f"{API}/agent/ask", headers=HEADERS, json={"question": question.strip()},
+                                      timeout=300)
+                    r.raise_for_status()
+                    st.session_state["agent_result"] = r.json()
+                    st.session_state["agent_asked"] = asked + 1
+                    st.rerun()  # refresh the remaining-questions count
+                except requests.HTTPError as e:
+                    detail = e.response.json().get("detail", str(e)) if e.response is not None else str(e)
+                    st.session_state.pop("agent_result", None)
+                    st.error(detail)
+                except requests.RequestException as e:
+                    st.error(f"The agent didn't answer: {e}")
+        result = st.session_state.get("agent_result")
+        if result:
+            st.markdown(result["answer"])
+            st.caption(f"{len(result['steps'])} tool call(s) · {result['usage']['model_calls']} model call(s) · "
+                       f"{result['usage']['input_tokens']:,} in / {result['usage']['output_tokens']:,} out tokens · "
+                       f"{result['seconds']} s · {result['model']}")
+            for i, step in enumerate(result["steps"], 1):
+                with st.expander(f"{'⚠️' if step['is_error'] else '🔧'} Step {i}: `{step['tool']}` "
+                                 f"({step['seconds']} s)"):
+                    st.markdown("**Claude called it with:**")
+                    st.json(step["input"])
+                    st.markdown("**The tool returned:**")
+                    st.code(step["result_preview"], language="json")
 
 # --- churn scoring -----------------------------------------------------------------------
 with tab_score:

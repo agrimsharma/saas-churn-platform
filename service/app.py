@@ -18,13 +18,14 @@ from fastapi.concurrency import run_in_threadpool
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from pydantic import BaseModel, Field
 
-from service import churn_model, complaints, drift, rag
+from service import agent, churn_model, complaints, drift, rag
 
 ROOT = Path(__file__).resolve().parents[1]
 DRIFT_SUMMARY_PATH = ROOT / "reports" / "drift_summary.json"
 ACTIONS_LOG_PATH = Path(os.environ.get("ACTIONS_LOG_PATH", ROOT / "reports" / "actions.jsonl"))
 DEMO_ACTIONS_PATH = ROOT / "reports" / "demo_actions.jsonl"  # snapshot of a real n8n run
-# free public deployment (Hugging Face Space): nothing that costs money or changes shared state
+# free public deployment (Modal): nothing that changes shared state, and the only billed feature
+# (the Claude agent) runs under a daily question budget
 PUBLIC_DEMO = os.environ.get("PUBLIC_DEMO", "").lower() in ("1", "true", "yes")
 API_KEY = os.environ.get("API_KEY")  # unset = no auth (local dev)
 # a retrained model is only promoted if its CV ROC-AUC is at most this much worse
@@ -45,6 +46,15 @@ for _label in ("true", "false"):
     DRAFTS.labels(_label)
 for _label in ("input", "output"):
     DRAFT_TOKENS.labels(_label)
+AGENT_QUESTIONS = Counter("churn_agent_questions_total", "Questions to the Claude agent", ["outcome"])
+AGENT_TOOL_CALLS = Counter("churn_agent_tool_calls_total", "Tool calls made by the Claude agent", ["tool"])
+AGENT_TOKENS = Counter("churn_agent_tokens_total", "Claude tokens used by the agent", ["kind"])
+for _label in ("answered", "budget_exhausted", "unavailable", "error"):
+    AGENT_QUESTIONS.labels(_label)
+for _fn in agent.agent_tools.TOOLS:
+    AGENT_TOOL_CALLS.labels(_fn.__name__)
+for _label in ("input", "output"):
+    AGENT_TOKENS.labels(_label)
 
 _state: Dict[str, Any] = {"model": None}
 _lock = threading.Lock()
@@ -135,6 +145,10 @@ class SimilarRequest(BaseModel):
     text: str = Field(..., min_length=20, max_length=20000)
     k: int = Field(5, ge=1, le=20)
     product: Optional[str] = None  # restrict to one CFPB product, e.g. "Debt collection"
+
+
+class AgentQuestion(BaseModel):
+    question: str = Field(..., min_length=3, max_length=agent.MAX_QUESTION_CHARS)
 
 
 class Action(BaseModel):
@@ -294,6 +308,18 @@ def demo_customers(
     return out
 
 
+@app.get("/demo/customers/{customer_id}", dependencies=[Depends(require_key)])
+def demo_customer(customer_id: str):
+    """One customer from the CRM stand-in, by ID (label removed)."""
+    df = pd.read_csv(churn_model.DATA_PATH)
+    row = df[df["customerID"] == customer_id]
+    if row.empty:
+        raise HTTPException(status_code=404, detail=f"no customer with ID {customer_id}")
+    row = row.iloc[[0]].copy()
+    row["TotalCharges"] = pd.to_numeric(row["TotalCharges"], errors="coerce").fillna(0)
+    return row[["customerID"] + churn_model.FEATURES].to_dict(orient="records")[0]
+
+
 @app.post("/actions", dependencies=[Depends(require_key), Depends(not_in_public_demo)])
 def log_action(action: Action):
     """Local action log - where a real deployment would write to the CRM."""
@@ -311,3 +337,52 @@ def list_actions(limit: int = Query(50, ge=1, le=1000)):
         return {"actions": []}
     lines = path.read_text().splitlines()[-limit:]
     return {"actions": [json.loads(line) for line in reversed(lines)]}
+
+
+@app.get("/agent/status", dependencies=[Depends(require_key)])
+def agent_status():
+    configured = rag.drafting_configured() and (not PUBLIC_DEMO or agent.DAILY_LIMIT > 0)
+    used = agent.used_today() if agent.DAILY_LIMIT > 0 else None
+    return {
+        "configured": configured,
+        "model": agent.AGENT_MODEL,
+        "tools": [fn.__name__ for fn in agent.agent_tools.TOOLS],
+        "daily_limit": agent.DAILY_LIMIT or None,
+        "used_today": used,
+        "remaining_today": None if used is None else max(agent.DAILY_LIMIT - used, 0),
+    }
+
+
+@app.post("/agent/ask", dependencies=[Depends(require_key)])
+def agent_ask(req: AgentQuestion):
+    """Answer a question with the Claude agent, which calls the platform's read-only tools.
+    In the public demo it runs only with a daily question budget (AGENT_DAILY_LIMIT)."""
+    if PUBLIC_DEMO and agent.DAILY_LIMIT <= 0:
+        raise HTTPException(status_code=403, detail="the agent is disabled in the public demo")
+    if not rag.drafting_configured():
+        AGENT_QUESTIONS.labels("unavailable").inc()
+        raise HTTPException(status_code=503, detail="the agent is disabled: set ANTHROPIC_API_KEY")
+    try:
+        remaining = agent.take_slot(require_db=PUBLIC_DEMO)
+    except agent.BudgetExhausted:
+        AGENT_QUESTIONS.labels("budget_exhausted").inc()
+        raise HTTPException(status_code=429, detail=f"today's {agent.DAILY_LIMIT}-question budget is used up "
+                                                    "- it resets at midnight UTC")
+    except agent.AgentUnavailable as e:
+        AGENT_QUESTIONS.labels("unavailable").inc()
+        raise HTTPException(status_code=503, detail=str(e))
+    try:
+        result = agent.ask(req.question)
+    except agent.AgentUnavailable as e:
+        AGENT_QUESTIONS.labels("unavailable").inc()
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception:
+        AGENT_QUESTIONS.labels("error").inc()
+        raise
+    AGENT_QUESTIONS.labels("answered").inc()
+    for step in result["steps"]:
+        AGENT_TOOL_CALLS.labels(step["tool"]).inc()
+    AGENT_TOKENS.labels("input").inc(result["usage"]["input_tokens"])
+    AGENT_TOKENS.labels("output").inc(result["usage"]["output_tokens"])
+    result["remaining_today"] = None if remaining < 0 else remaining
+    return result

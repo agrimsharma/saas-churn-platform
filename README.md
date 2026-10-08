@@ -5,9 +5,9 @@ Churn prediction served behind a FastAPI service, with **n8n** workflows that tu
 - **Complaint routing:** send each incoming complaint to the right team.
 - **Drift-triggered retraining:** check for drift weekly and retrain, with a promotion gate.
 
-A Streamlit dashboard shows the predictions, the complaint triage and what the workflows did.
+A **Claude agent** answers questions about the platform by calling its tools ("which customers are most likely to leave, and what should we offer them?"), and an **MCP server** gives Claude Desktop, Claude Code or any MCP client the same tools. A Streamlit dashboard shows the predictions, the complaint triage, the agent and what the workflows did.
 
-**Live demo: [agrimsharma--churn-platform.modal.run](https://agrimsharma--churn-platform.modal.run)** (free hosting: the first visit after a quiet spell takes ~30 s while the container starts. The public demo shows example Claude drafts instead of calling Claude live, and runs without n8n. Both run in the [full deployment](#full-deployment-on-kubernetes) below.)
+**Live demo: [agrimsharma--churn-platform.modal.run](https://agrimsharma--churn-platform.modal.run)** (free hosting: the first visit after a quiet spell takes ~30 s while the container starts. The agent is live with a small daily question budget. Reply drafting shows real examples instead of calling Claude, and n8n isn't hosted; both run in the [full deployment](#full-deployment-on-kubernetes) below.)
 
 <p align="center"><img src="docs/screenshots/dashboard-rag.jpg" width="820" alt="Complaint triage: classifier, the five most similar past complaints, and a Claude-drafted reply citing them"></p>
 
@@ -142,6 +142,59 @@ How to read this:
 - Masking the word "churn" (`scripts/prepare_text.py`) didn't help, because the sentiment itself carries the answer.
 - The model was dropped. The scripts stay as a record (`prepare_text*.py`, `train_text_model.py`).
 
+## Claude agent and MCP server (tool calling)
+
+```
+                      ┌─ POST /agent/ask ── service/agent.py: Claude decides which tools to call
+ 7 tools, written     │                     (dashboard "Ask the platform" tab, or any HTTP client)
+ once as plain   ─────┤
+ typed functions      └─ churn_mcp/server.py ── MCP over stdio / streamable HTTP
+ (service/agent_tools.py)                       (Claude Desktop, Claude Code, IDEs)
+        │
+        └── each tool calls the churn API over HTTP (same auth, validation and metrics as n8n uses)
+```
+
+| Tool | What it does |
+|---|---|
+| `get_platform_status` | Model health: CV ROC-AUC, when it was trained, which features are on |
+| `find_at_risk_customers` | Scores the 500-customer book, returns the riskiest (optionally by contract) with SHAP drivers |
+| `get_customer` | One customer by ID: CRM fields, churn probability, risk tier, drivers |
+| `check_drift` | Runs the drift check, optionally with the simulated price hike / contract shift |
+| `classify_complaint` | DistilBERT product category + confidence |
+| `find_similar_complaints` | Semantic search over 40k past CFPB complaints, with how each was resolved |
+| `list_workflow_actions` | What the n8n workflows logged (calls, emails, routed tickets, promotions) |
+
+**How one question runs** (`service/agent.py`): the question goes to Claude with the 7 tool schemas → Claude replies with `tool_use` blocks → the API runs those tools and sends the results back as `tool_result` blocks → repeat until Claude answers in text, for at most 6 model calls. Every step is returned (tool, inputs, result) and shown in the dashboard. The details:
+- **One definition, two interfaces.** Each tool is a typed Python function. Its signature and docstring become the JSON schema for Claude (via the SDK's `beta_tool`) and for MCP, so the two can't drift apart.
+- **The tools are thin API clients.** They reuse the API's auth, validation and metrics, and the MCP server needs no ML dependencies.
+- **Everything is read-only.** No tool can log actions, retrain or call Claude.
+- **Errors go back to Claude, not to the user.** A bad customer ID or an unavailable index comes back as an `is_error` tool result, so Claude can explain or try something else.
+- **Safety and cost:**
+  - **Budget:** a daily question budget (`AGENT_DAILY_LIMIT`) is counted atomically in Postgres, so it holds across restarts and containers.
+  - **Limits:** questions are capped at 500 characters and 6 model calls.
+  - **Refusals:** a server-side fallback handles policy refusals.
+  - **Metrics:** Prometheus counts questions, tool calls and tokens (`churn_agent_*`).
+- **Example:** *"Which 5 month-to-month customers are most likely to churn, and what offer would you make each?"* took 1 tool call, 2 model calls and about 5.5k input / 1.2k output tokens in 14 s, roughly $0.05 on `claude-opus-5-5`.
+
+**Use the tools from Claude Desktop or Claude Code (MCP):** with the API running (`docker compose up -d`, so `http://localhost:8000`):
+
+```bash
+claude mcp add churn-platform -e CHURN_API_URL=http://localhost:8000 -e CHURN_API_KEY=<your API_KEY> -- \
+  uv run --directory "$PWD" --with "mcp>=2.3" python -m churn_mcp.server
+```
+
+For Claude Desktop, add the same command to `claude_desktop_config.json` under `mcpServers`:
+
+```json
+{"mcpServers": {"churn-platform": {
+  "command": "uv",
+  "args": ["run", "--directory", "/path/to/saas-churn-platform", "--with", "mcp>=2.3", "python", "-m", "churn_mcp.server"],
+  "env": {"CHURN_API_URL": "http://localhost:8000", "CHURN_API_KEY": "<your API_KEY>"}
+}}}
+```
+
+Then ask Claude things like *"use churn-platform to find our riskiest customers"*. `python -m churn_mcp.server --http` serves the same tools over streamable HTTP at `http://127.0.0.1:8765/mcp`.
+
 ## API
 
 | Endpoint | Purpose |
@@ -154,6 +207,9 @@ How to read this:
 | `POST /complaints/similar` | `{"text": "...", "k": 5, "product": null}` → most similar past CFPB complaints (pgvector), with issue and company response |
 | `POST /complaints/draft` | Same input → Claude drafts a reply grounded in the retrieved cases: `reply`, `cited_complaint_ids`, `escalate`. Needs `ANTHROPIC_API_KEY`; returns 503 without it |
 | `GET /demo/customers` | CRM stand-in: random Telco rows; `scenario=price_hike\|contract_shift\|both` injects drift |
+| `GET /demo/customers/{id}` | One customer from the CRM stand-in |
+| `POST /agent/ask` | `{"question": "..."}` → the Claude agent's answer, every tool step, token usage, and the remaining daily budget. Needs `ANTHROPIC_API_KEY` |
+| `GET /agent/status` | Whether the agent is on, its model and tools, and today's remaining questions |
 | `POST /actions`, `GET /actions` | Action log (`reports/actions.jsonl`), standing in for CRM writes |
 | `GET /drift` | The original one-off Evidently report (`scripts/drift_monitoring.py`) |
 
@@ -217,7 +273,9 @@ The chart ships values for a local kind cluster, AKS and GKE (`values-*.yaml`). 
 ## Layout
 
 ```
-service/          FastAPI app, churn model + calibration, PSI drift, complaints classifier, RAG (pgvector + Claude), Dockerfile
+service/          FastAPI app, churn model + calibration, PSI drift, complaints classifier, RAG (pgvector + Claude),
+                  the agent's tools (agent_tools.py) and loop (agent.py), Dockerfile
+churn_mcp/        MCP server exposing the same tools
 n8n/              workflow generator + importable workflows
 dashboard/        Streamlit ops dashboard
 deploy/           Helm chart (API, dashboard, n8n, pgvector, monitoring) + free-tier Modal app

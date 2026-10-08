@@ -41,6 +41,8 @@ spec:
             - {name: ACTIONS_LOG_PATH, value: /state/actions.jsonl}
             - {name: HF_HOME, value: /cache/hf}
             - {name: HOME, value: /tmp}
+            # the Claude agent (/agent/ask): questions per day, 0 = unlimited
+            - {name: AGENT_DAILY_LIMIT, value: {{ .Values.api.agentDailyLimit | quote }}}
             - name: COMPLAINTS_MODEL
               {{- if eq $model.source "hostPath" }}
               value: /models/complaints-classifier

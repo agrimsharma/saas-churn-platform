@@ -5,5 +5,5 @@ transformers>=4.40
 sentence-transformers>=3.0
 psycopg[binary]>=3.2
 pgvector>=0.3
-anthropic>=0.70
+anthropic>=1.0
 pyarrow>=15

@@ -4,7 +4,7 @@
 secrets:
   apiKey: ""            # internal API key shared by dashboard + n8n
   postgresPassword: ""
-  anthropicApiKey: ""   # optional: enables live Claude drafts (billed per call)
+  anthropicApiKey: ""   # optional: enables live Claude drafts and the agent (billed per call)
   slackWebhookUrl: ""   # optional: n8n digests/alerts
 
 api:
@@ -15,6 +15,7 @@ api:
     hub: ""               # e.g. agrimsharma/cfpb-complaints-distilbert
     hostPath: /mnt/churn-models/complaints-classifier
   telcoDataUrl: https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv
+  agentDailyLimit: 0      # questions/day for the Claude agent; 0 = unlimited
   resources:
     requests: {cpu: 500m, memory: 2Gi}
     limits: {memory: 4Gi}
