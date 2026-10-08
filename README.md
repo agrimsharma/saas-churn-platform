@@ -174,7 +174,7 @@ How to read this:
   - **Limits:** questions are capped at 500 characters and 6 model calls.
   - **Refusals:** a server-side fallback handles policy refusals.
   - **Metrics:** Prometheus counts questions, tool calls and tokens (`churn_agent_*`).
-- **Example:** *"Which 5 month-to-month customers are most likely to churn, and what offer would you make each?"* took 1 tool call, 2 model calls and about 5.5k input / 1.2k output tokens in 14 s, roughly $0.05 on `claude-opus-5-5`.
+- **Example:** *"Which 5 month-to-month customers are most likely to churn, and what offer would you make each?"* took 1 tool call, 2 model calls and about 5.5k input / 1.2k output tokens in 14 s, roughly $0.05 on `claude-opus-5-5` (the default). The public demo runs `claude-sonnet-5-5`, at about $0.02 per question.
 
 **Use the tools from Claude Desktop or Claude Code (MCP):** with the API running (`docker compose up -d`, so `http://localhost:8000`):
 
