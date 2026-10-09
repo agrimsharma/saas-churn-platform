@@ -144,6 +144,8 @@ How to read this:
 
 ## Claude agent and MCP server (tool calling)
 
+<p align="center"><img src="docs/screenshots/agent-tab.jpg" width="820" alt="The Ask the platform tab on the live demo: remaining questions, model, the 7 tools, and the screening notice"></p>
+
 ```
                       ┌─ POST /agent/ask ── service/agent.py: Claude decides which tools to call
  7 tools, written     │                     (dashboard "Ask the platform" tab, or any HTTP client)
